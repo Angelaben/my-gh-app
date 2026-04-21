@@ -166,7 +166,7 @@ async def stream_review(owner: str, repo: str, pr_number: int):
 @app.post("/api/comment/publish")
 def publish_comment(data: PublishComment):
     try:
-        prefixed = f"- Opencode review -\n\n{data.body}"
+        prefixed = data.body
         gh.post_comment(data.repo, data.pr_number, prefixed)
         return {"status": "published"}
     except RuntimeError as e:

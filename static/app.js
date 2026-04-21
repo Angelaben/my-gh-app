@@ -373,7 +373,23 @@ function renderReviewResults(review) {
   el.querySelectorAll("[data-finding]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const f = review.findings[parseInt(btn.dataset.finding)];
-      const body = `**[${f.criticality}] ${f.title}**\n\n${f.description}${f.file ? `\n\nFile: \`${f.file}${f.line ? `:${f.line}` : ""}\`` : ""}${f.suggestion ? `\n\nSuggestion: ${f.suggestion}` : ""}`;
+      const severityEmoji = { P0: "\u{1F534}", P1: "\u{1F7E0}", P2: "\u{1F7E1}", P3: "\u{1F535}" };
+      const severityLabel = { P0: "Critical", P1: "Major", P2: "Minor", P3: "Suggestion" };
+      const emoji = severityEmoji[f.criticality] || "\u{1F535}";
+      const label = severityLabel[f.criticality] || "Info";
+
+      let body = `## ${emoji} ${f.criticality} — ${f.title}\n\n`;
+      body += `| | |\n|---|---|\n| **Severity** | ${emoji} ${f.criticality} (${label}) |\n`;
+      if (f.file) {
+        body += `| **File** | \`${f.file}${f.line ? ':' + f.line : ''}\` |\n`;
+      }
+      body += `\n---\n\n`;
+      body += `### Description\n\n${f.description}\n\n`;
+      if (f.suggestion) {
+        body += `<details>\n<summary><strong>\u{1F4A1} Suggested Fix</strong></summary>\n\n${f.suggestion}\n\n</details>\n\n`;
+      }
+      body += `---\n<sub>\u{1F916} Automated review by <strong>OpenCode</strong> — <a href="https://opencode.ai">opencode.ai</a></sub>`;
+
       btn.disabled = true;
       btn.textContent = "Publishing...";
       try {
