@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gh-review-tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>GH-REVIEW</h1>
+      <div class="breadcrumb" id="breadcrumb"></div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Repositories</h2>
+        <div class="add-repo-form">
+          <input type="text" id="repo-search" placeholder="org/repo or search..." />
+          <button class="btn btn-accent btn-small" id="repo-search-btn">+</button>
+        </div>
+        <div id="search-results" class="search-results" style="display:none;"></div>
+      </div>
+      <div class="repo-list" id="repo-list"></div>
+    </aside>
+
+    <main class="main-content" id="main-content">
+      <div class="empty-state">
+        <div class="icon">&lt;/&gt;</div>
+        <p>Select a repository from the sidebar or add one to get started.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

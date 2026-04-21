@@ -1,0 +1,16 @@
+[project]
+name = "gh-review-tool"
+version = "0.1.0"
+description = "GitHub PR review dashboard powered by opencode"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
