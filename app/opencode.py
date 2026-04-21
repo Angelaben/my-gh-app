@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -18,43 +19,75 @@ def _clean_env() -> dict[str, str]:
 
 
 async def _run_opencode(message: str, context: str | None = None, timeout: int = 300) -> str:
-    """Run opencode with a message. Optionally attach a context file for large content."""
-    args = ["opencode", "run"]
+    """Run opencode with a message. If context is provided, it's appended to the message in a temp file."""
+    output_parts: list[str] = []
+    async for chunk in _stream_opencode(message, context, timeout):
+        output_parts.append(chunk)
+    return "".join(output_parts)
+
+
+async def _stream_opencode(
+    message: str, context: str | None = None, timeout: int = 300
+) -> AsyncGenerator[str, None]:
+    """Stream opencode output line by line as it runs."""
+    prompt = message
+    if context:
+        prompt = f"{message}\n\n---\n\n{context}"
 
     context_file = None
-    if context:
+    if len(prompt) > 4000:
         f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
-        f.write(context)
+        f.write(prompt)
         f.close()
         context_file = f.name
-        args.extend(["--file", context_file])
-
-    args.append(message)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_clean_env(),
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        stdout_str = stdout.decode().strip()
-        stderr_str = stderr.decode().strip()
-        logger.info("opencode command: %s", " ".join(args))
+        if context_file:
+            proc = await asyncio.create_subprocess_exec(
+                "opencode", "run",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_clean_env(),
+            )
+            with open(context_file) as fh:
+                input_bytes = fh.read().encode()
+            # Write stdin and close it, then read stdout streaming
+            assert proc.stdin is not None
+            proc.stdin.write(input_bytes)
+            proc.stdin.close()
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                "opencode", "run", prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_clean_env(),
+            )
+
+        assert proc.stdout is not None
+        # Read stdout line by line as it streams
+        while True:
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                yield "\n[TIMEOUT]\n"
+                break
+            if not line:
+                break
+            decoded = line.decode()
+            yield decoded
+
+        await proc.wait()
         logger.info("opencode exit code: %s", proc.returncode)
-        logger.info("opencode stdout (%d chars): %s", len(stdout_str), stdout_str[:2000])
-        if stderr_str:
-            logger.warning("opencode stderr: %s", stderr_str[:2000])
-        return stdout_str
+
     finally:
         if context_file:
             os.unlink(context_file)
 
 
-async def run_review(repo_full_name: str, pr_number: int, diff: str) -> dict:
-    """Run opencode to review a PR diff. Returns structured findings."""
-    message = f"""You are reviewing Pull Request #{pr_number} from repository {repo_full_name}.
+def _build_review_prompt(repo_full_name: str, pr_number: int) -> str:
+    return f"""You are reviewing Pull Request #{pr_number} from repository {repo_full_name}.
 Analyze the attached diff file and provide a code review. For each issue found, classify it with a criticality level:
 - P0: Critical - Security vulnerability, data loss, crash
 - P1: Major - Bug, incorrect logic, performance issue
@@ -66,9 +99,16 @@ Return your response as a JSON object with this exact structure:
 
 IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
 
-    output = await _run_opencode(message, context=diff[:30000])
 
-    # Try to parse JSON from output
+async def stream_review(repo_full_name: str, pr_number: int, diff: str) -> AsyncGenerator[str, None]:
+    """Stream opencode review output line by line."""
+    message = _build_review_prompt(repo_full_name, pr_number)
+    async for chunk in _stream_opencode(message, context=diff[:30000]):
+        yield chunk
+
+
+def parse_review_output(output: str) -> dict:
+    """Parse the full review output into structured findings."""
     try:
         start = output.find("{")
         end = output.rfind("}") + 1
@@ -83,6 +123,13 @@ IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
         "raw_length": len(output),
         "findings": [],
     }
+
+
+async def run_review(repo_full_name: str, pr_number: int, diff: str) -> dict:
+    """Run opencode to review a PR diff. Returns structured findings."""
+    message = _build_review_prompt(repo_full_name, pr_number)
+    output = await _run_opencode(message, context=diff[:30000])
+    return parse_review_output(output)
 
 
 async def analyze_comments(repo_full_name: str, pr_number: int, comments: list[dict]) -> list[dict]:

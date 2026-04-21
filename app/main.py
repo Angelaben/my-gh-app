@@ -1,10 +1,11 @@
 """FastAPI backend for gh-review-tool."""
 
+import json
 import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app import cache, gh, opencode
@@ -120,6 +121,44 @@ async def rerun_review(owner: str, repo: str, pr_number: int):
         return review
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/review/{owner}/{repo}/{pr_number}/stream")
+async def stream_review(owner: str, repo: str, pr_number: int):
+    """SSE endpoint that streams opencode output in real-time, then emits the parsed result."""
+    full_name = f"{owner}/{repo}"
+
+    try:
+        diff = gh.get_pr_diff(full_name, pr_number)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    async def event_stream():
+        full_output = []
+        async for chunk in opencode.stream_review(full_name, pr_number, diff):
+            full_output.append(chunk)
+            # Send each chunk as an SSE event
+            # Escape newlines for SSE format (each line needs "data: " prefix)
+            for line in chunk.splitlines(keepends=True):
+                escaped = json.dumps({"type": "chunk", "text": line})
+                yield f"data: {escaped}\n\n"
+
+        # Once done, parse the full output and send the structured result
+        output_text = "".join(full_output).strip()
+        review = opencode.parse_review_output(output_text)
+        cache.save_review(full_name, pr_number, review)
+        yield f"data: {json.dumps({'type': 'result', 'review': review})}\n\n"
+        yield "data: {\"type\": \"done\"}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --- Comment actions ---

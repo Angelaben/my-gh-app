@@ -261,18 +261,70 @@ async function runReview(rerun) {
   const { owner, name } = state.currentRepo;
   const pr = state.currentPR;
   const resultsEl = $("#review-results");
-  resultsEl.innerHTML = `<div class="loading"><div class="spinner"></div>Running opencode review... this may take a few minutes.</div>`;
 
-  const path = `/review/${owner}/${name}/${pr.number}${rerun ? "/rerun" : ""}`;
-
-  try {
-    const review = await api("POST", path);
-    console.log("[gh-review-tool] Review API response:", JSON.stringify(review, null, 2));
-    renderReviewResults(review);
-  } catch (e) {
-    console.error("[gh-review-tool] Review failed:", e);
-    resultsEl.innerHTML = `<div style="color:var(--p0);">Review failed: ${e.message}</div>`;
+  // If not rerun and not streaming, try cached first via POST
+  if (!rerun) {
+    try {
+      const cached = await api("POST", `/review/${owner}/${name}/${pr.number}`);
+      if (cached && (cached.findings?.length || cached.summary)) {
+        renderReviewResults(cached);
+        return;
+      }
+    } catch (e) { /* no cache, proceed to stream */ }
   }
+
+  // Clear cache if rerun
+  if (rerun) {
+    try { await api("DELETE", `/review/${owner}/${name}/${pr.number}/cache`); } catch (e) {}
+  }
+
+  // Stream the review via SSE
+  resultsEl.innerHTML = `
+    <div class="loading"><div class="spinner"></div>Running opencode review...</div>
+    <div id="stream-output" style="margin-top:12px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;max-height:500px;overflow-y:auto;font-family:var(--font-mono);"></div>
+  `;
+
+  const streamEl = $("#stream-output");
+  const evtSource = new EventSource(`/api/review/${owner}/${name}/${pr.number}/stream`);
+
+  evtSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "chunk") {
+        streamEl.textContent += data.text;
+        // Auto-scroll to bottom
+        streamEl.scrollTop = streamEl.scrollHeight;
+      } else if (data.type === "result") {
+        console.log("[gh-review-tool] Review result:", JSON.stringify(data.review, null, 2));
+        evtSource.close();
+        renderReviewResults(data.review);
+      } else if (data.type === "done") {
+        evtSource.close();
+      }
+    } catch (e) {
+      console.error("[gh-review-tool] SSE parse error:", e, event.data);
+    }
+  };
+
+  evtSource.onerror = (e) => {
+    console.error("[gh-review-tool] SSE error:", e);
+    evtSource.close();
+    // If stream-output has content, try to parse it as a review
+    const output = streamEl.textContent.trim();
+    if (output) {
+      resultsEl.innerHTML = "";
+      // Show what we got
+      renderReviewResults({
+        summary: "Stream ended. Raw output shown below.",
+        raw_output: output,
+        raw_length: output.length,
+        findings: [],
+      });
+    } else {
+      resultsEl.innerHTML = `<div style="color:var(--p0);">Review stream failed. Check server logs.</div>`;
+    }
+  };
 }
 
 function renderReviewResults(review) {
