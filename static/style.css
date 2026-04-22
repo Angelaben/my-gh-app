@@ -153,6 +153,28 @@ input[type="text"]:focus { border-color: var(--accent); }
 }
 .btn-accent:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
+.btn-success {
+  border-color: var(--success);
+  color: var(--success);
+  background: transparent;
+}
+.btn-success:hover { background: var(--success); color: var(--bg); }
+
+.btn-new-pr {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+.btn-new-pr:hover { background: var(--accent); color: var(--bg); }
+
+.pr-link {
+  color: var(--accent);
+  text-decoration: underline;
+  word-break: break-all;
+  display: block;
+  margin: 4px 0;
+}
+
 .btn-small { padding: 4px 10px; font-size: 11px; }
 
 .btn-p0 { border-color: var(--p0); color: var(--p0); }

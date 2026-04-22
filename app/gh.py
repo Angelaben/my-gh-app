@@ -245,3 +245,32 @@ def get_diff(repo_dir: str) -> str:
     """Get the full diff of uncommitted changes (staged + unstaged)."""
     _git(["add", "-A"], cwd=repo_dir)
     return _git(["diff", "--cached"], cwd=repo_dir)
+
+
+def commit_and_push(repo_dir: str, message: str) -> str:
+    """Commit all staged changes and push to origin. Returns the push output."""
+    _git(["add", "-A"], cwd=repo_dir)
+    _git(["commit", "-m", message], cwd=repo_dir, timeout=30)
+    return _git(["push"], cwd=repo_dir, timeout=120)
+
+
+def create_branch_and_push(repo_dir: str, new_branch: str, message: str) -> str:
+    """Create a new branch from current state, commit, and push."""
+    _git(["checkout", "-b", new_branch], cwd=repo_dir, timeout=10)
+    _git(["add", "-A"], cwd=repo_dir)
+    _git(["commit", "-m", message], cwd=repo_dir, timeout=30)
+    return _git(["push", "-u", "origin", new_branch], cwd=repo_dir, timeout=120)
+
+
+def create_pr(repo_full_name: str, head_branch: str, base_branch: str, title: str, body: str) -> dict:
+    """Create a new PR using gh CLI. Returns the PR data."""
+    raw = _run([
+        "pr", "create",
+        "--repo", repo_full_name,
+        "--head", head_branch,
+        "--base", base_branch,
+        "--title", title,
+        "--body", body,
+    ], timeout=30)
+    # gh pr create returns the PR URL
+    return {"url": raw.strip()}

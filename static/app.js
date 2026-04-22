@@ -637,13 +637,15 @@ async function streamFix(btn, idx, comment) {
       btn.style.color = "var(--success)";
       toast("Fix applied locally — review the changes");
 
-      // Add result bar with clone path and diff
+      // Add result bar with worktree path, diff, and action buttons
       const resultBar = document.createElement("div");
       resultBar.className = "fix-result-bar";
       resultBar.innerHTML = `
         <span class="fix-label">Worktree:</span>
         <code class="fix-worktree-path">${escapeHtml(resultData.worktree_path)}</code>
         <button class="btn btn-small btn-accent show-diff-btn">Show Diff</button>
+        <button class="btn btn-small btn-success push-fix-btn">Push to PR</button>
+        <button class="btn btn-small btn-new-pr new-pr-btn">Submit new PR</button>
       `;
       card.appendChild(resultBar);
 
@@ -660,11 +662,71 @@ async function streamFix(btn, idx, comment) {
         card.appendChild(diffDiv);
       });
 
+      const fixPayload = {
+        repo: full_name,
+        pr_number: pr.number,
+        diff: resultData.diff || "",
+        comment_body: comment.body,
+        branch: resultData.branch || "",
+      };
+
+      // Push to existing PR
+      const pushBtn = resultBar.querySelector(".push-fix-btn");
+      pushBtn.addEventListener("click", async () => {
+        pushBtn.disabled = true;
+        pushBtn.textContent = "Pushing...";
+        try {
+          const res = await api("POST", "/comment/fix/push", fixPayload);
+          pushBtn.textContent = "Pushed!";
+          pushBtn.style.borderColor = "var(--success)";
+          pushBtn.style.color = "var(--success)";
+          resultBar.querySelector(".new-pr-btn").disabled = true;
+          toast(`Pushed to PR branch: ${res.commit_message}`);
+          const instr = card.querySelector(".fix-instructions");
+          if (instr) {
+            instr.innerHTML = `<span style="color:var(--success);">Committed and pushed to PR #${pr.number}.</span>
+              <code>${escapeHtml(res.commit_message)}</code>`;
+          }
+        } catch (e) {
+          pushBtn.textContent = "Push failed";
+          pushBtn.style.color = "var(--p0)";
+          pushBtn.disabled = false;
+          toast(e.message, "error");
+        }
+      });
+
+      // Submit new PR
+      const newPrBtn = resultBar.querySelector(".new-pr-btn");
+      newPrBtn.addEventListener("click", async () => {
+        newPrBtn.disabled = true;
+        newPrBtn.textContent = "Creating PR...";
+        try {
+          const res = await api("POST", "/comment/fix/new-pr", fixPayload);
+          newPrBtn.textContent = "PR Created!";
+          newPrBtn.style.borderColor = "var(--success)";
+          newPrBtn.style.color = "var(--success)";
+          pushBtn.disabled = true;
+          toast(`New PR created: ${res.pr_title}`);
+          const instr = card.querySelector(".fix-instructions");
+          if (instr) {
+            instr.innerHTML = `
+              <span style="color:var(--success);">New PR created on branch <code>${escapeHtml(res.branch)}</code></span>
+              <a href="${escapeHtml(res.pr_url)}" target="_blank" class="pr-link">${escapeHtml(res.pr_url)}</a>
+              <code>${escapeHtml(res.commit_message)}</code>`;
+          }
+        } catch (e) {
+          newPrBtn.textContent = "Failed";
+          newPrBtn.style.color = "var(--p0)";
+          newPrBtn.disabled = false;
+          toast(e.message, "error");
+        }
+      });
+
       // Instructions
       const instructions = document.createElement("div");
       instructions.className = "fix-instructions";
       instructions.innerHTML = `
-        <span>To review and push:</span>
+        <span>Or manually:</span>
         <code>cd ${escapeHtml(resultData.worktree_path)} && git diff --cached</code>
         <code>git commit -m "fix: address review comment" && git push</code>
       `;

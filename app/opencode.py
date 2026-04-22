@@ -101,11 +101,13 @@ async def _stream_opencode(
         await proc.wait()
         logger.info("opencode exit code: %s", proc.returncode)
 
-        # Yield stderr as well so the frontend can see it
+        # Yield stderr as well so the frontend can see it (filtered)
         stderr_lines = await stderr_task
-        if stderr_lines:
+        noise_patterns = ["[STALE]", "fatal: options '--name-only'", "cannot be used together"]
+        filtered = [l for l in stderr_lines if not any(p in l for p in noise_patterns)]
+        if filtered:
             yield "\n--- stderr ---\n"
-            for err_line in stderr_lines:
+            for err_line in filtered:
                 yield err_line + "\n"
 
     finally:
@@ -203,8 +205,9 @@ async def stream_fix_in_repo(
     with open(os.path.join(settings_dir, "settings.json"), "w") as f:
         json.dump(settings, f)
 
-    # Also write opencode.json at project root with permission overrides
+    # Write opencode.json at project root with permission overrides
     project_config = {
+        "$schema": "https://opencode.ai/config.json",
         "agent": {
             "build": {
                 "permission": {
@@ -215,8 +218,10 @@ async def stream_fix_in_repo(
             }
         }
     }
-    with open(os.path.join(repo_dir, "opencode.json"), "w") as f:
-        json.dump(project_config, f)
+    config_path = os.path.join(repo_dir, "opencode.json")
+    with open(config_path, "w") as f:
+        json.dump(project_config, f, indent=2)
+    logger.info("Wrote opencode.json at %s", config_path)
 
     prompt = f"""You are fixing a code review comment on PR #{pr_number} in {repo_full_name}.
 The reviewer left this comment:
