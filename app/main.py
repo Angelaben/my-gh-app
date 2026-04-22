@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +32,14 @@ class PublishComment(BaseModel):
     repo: str
     pr_number: int
     body: str
+
+
+class PublishInlineComment(BaseModel):
+    repo: str
+    pr_number: int
+    body: str
+    path: str
+    line: int
 
 
 class ImplementFix(BaseModel):
@@ -176,6 +183,15 @@ def publish_comment(data: PublishComment):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/comment/inline")
+def publish_inline_comment(data: PublishInlineComment):
+    try:
+        gh.post_inline_comment(data.repo, data.pr_number, data.body, data.path, data.line)
+        return {"status": "published"}
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/comments/{owner}/{repo}/{pr_number}/analyze")
 async def analyze_comments(owner: str, repo: str, pr_number: int):
     full_name = f"{owner}/{repo}"
@@ -198,8 +214,8 @@ async def analyze_comments(owner: str, repo: str, pr_number: int):
 
 @app.post("/api/comment/fix")
 async def implement_fix(data: ImplementFix):
-    """SSE endpoint: clone repo, checkout PR branch, run opencode to fix, show diff.
-    Does NOT push or create PR — leaves the clone for the user to review."""
+    """SSE endpoint: ensure bare clone, create worktree for PR branch, run opencode, show diff.
+    Does NOT push — leaves the worktree for the user to review, commit, and push."""
 
     def _sse(event: dict) -> str:
         return f"data: {json.dumps(event)}\n\n"
@@ -211,41 +227,31 @@ async def implement_fix(data: ImplementFix):
             pr_branch = gh.get_pr_head_branch(data.repo, data.pr_number)
             logger.info("PR #%s head branch: %s", data.pr_number, pr_branch)
 
-            # Step 2: Clone (full clone, NOT temp — user needs to access it)
-            # Use a persistent directory under ~/.gh-review-tool/clones/
-            clone_base = os.path.expanduser("~/.gh-review-tool/clones")
-            os.makedirs(clone_base, exist_ok=True)
-            repo_slug = data.repo.replace("/", "_")
-            clone_path = os.path.join(clone_base, f"{repo_slug}_pr{data.pr_number}_{int(time.time())}")
+            # Step 2: Create worktree (clones bare repo if needed, reuses if exists)
+            yield _sse({"type": "status", "text": f"Preparing worktree for PR #{data.pr_number}..."})
+            worktree_path = gh.create_worktree(data.repo, data.pr_number, pr_branch)
+            yield _sse({"type": "status", "text": f"Worktree ready at {worktree_path}"})
 
-            yield _sse({"type": "status", "text": f"Cloning {data.repo}..."})
-            gh.clone_repo(data.repo, clone_path)
-
-            # Step 3: Checkout PR branch
-            yield _sse({"type": "status", "text": f"Checking out {pr_branch}..."})
-            gh.checkout_pr_branch(clone_path, pr_branch)
-            yield _sse({"type": "status", "text": f"On branch {pr_branch}"})
-
-            # Step 4: Run opencode in the clone
+            # Step 3: Run opencode in the worktree
             yield _sse({"type": "status", "text": "Running opencode to implement fix..."})
             full_output: list[str] = []
             async for chunk in opencode.stream_fix_in_repo(
-                clone_path, data.repo, data.pr_number, data.comment_body
+                worktree_path, data.repo, data.pr_number, data.comment_body
             ):
                 full_output.append(chunk)
                 for line in chunk.splitlines(keepends=True):
                     yield _sse({"type": "chunk", "text": line})
 
-            # Step 5: Check if opencode made changes
-            if not gh.has_changes(clone_path):
+            # Step 4: Check if opencode made changes
+            if not gh.has_changes(worktree_path):
                 yield _sse({"type": "error", "text": "opencode did not make any file changes."})
-                yield _sse({"type": "result", "clone_path": clone_path, "has_changes": False, "diff": "", "text": "".join(full_output).strip()})
+                yield _sse({"type": "result", "worktree_path": worktree_path, "has_changes": False, "diff": "", "text": "".join(full_output).strip()})
             else:
-                diff_text = gh.get_diff(clone_path)
-                yield _sse({"type": "status", "text": f"Changes ready in {clone_path}"})
+                diff_text = gh.get_diff(worktree_path)
+                yield _sse({"type": "status", "text": f"Changes ready in {worktree_path}"})
                 yield _sse({
                     "type": "result",
-                    "clone_path": clone_path,
+                    "worktree_path": worktree_path,
                     "branch": pr_branch,
                     "has_changes": True,
                     "diff": diff_text[:10000],
@@ -264,6 +270,25 @@ async def implement_fix(data: ImplementFix):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+# --- Worktree management ---
+
+@app.get("/api/worktrees")
+def list_worktrees():
+    """List all active worktrees."""
+    return gh.list_worktrees()
+
+
+@app.delete("/api/worktree/{owner}/{repo}/{pr_number}")
+def remove_worktree(owner: str, repo: str, pr_number: int):
+    """Remove a worktree for a PR."""
+    full_name = f"{owner}/{repo}"
+    try:
+        gh.remove_worktree(full_name, pr_number)
+        return {"status": "removed"}
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/api/review/{owner}/{repo}/{pr_number}/cache")

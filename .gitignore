@@ -1,4 +1,21 @@
+# Cache
 .cache/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
+
+# OpenCode (written into worktrees, not project files)
+opencode.json
+.opencode/
+
+# OS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+.idea/
+.vscode/

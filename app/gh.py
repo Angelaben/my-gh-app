@@ -105,14 +105,68 @@ def post_comment(repo_full_name: str, pr_number: int, body: str) -> str:
     ])
 
 
-# --- Clone / Branch ---
+def get_pr_head_sha(repo_full_name: str, pr_number: int) -> str:
+    """Get the HEAD commit SHA of a PR."""
+    raw = _run([
+        "pr", "view", str(pr_number),
+        "--repo", repo_full_name,
+        "--json", "headRefOid",
+    ])
+    return json.loads(raw)["headRefOid"]
 
 
-def clone_repo(repo_full_name: str, target_dir: str) -> str:
-    """Clone a repository into target_dir. Returns the clone path."""
-    _run(["repo", "clone", repo_full_name, target_dir], timeout=300)
-    logger.info("Cloned %s into %s", repo_full_name, target_dir)
-    return target_dir
+def post_inline_comment(
+    repo_full_name: str,
+    pr_number: int,
+    body: str,
+    path: str,
+    line: int,
+    commit_id: str | None = None,
+) -> dict:
+    """Post an inline review comment on a specific file/line in a PR diff."""
+    if commit_id is None:
+        commit_id = get_pr_head_sha(repo_full_name, pr_number)
+
+    payload = json.dumps({
+        "body": body,
+        "commit_id": commit_id,
+        "path": path,
+        "line": line,
+        "side": "RIGHT",
+    })
+
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repo_full_name}/pulls/{pr_number}/comments",
+         "--method", "POST", "--input", "-"],
+        input=payload, capture_output=True, text=True, timeout=30, env=_clean_env(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to post inline comment: {result.stderr.strip()}")
+    return json.loads(result.stdout)
+
+
+# --- Clone / Worktree ---
+
+CLONES_BASE = os.path.expanduser("~/.gh-review-tool/clones")
+WORKTREES_BASE = os.path.expanduser("~/.gh-review-tool/worktrees")
+
+
+def _ensure_bare_clone(repo_full_name: str) -> str:
+    """Ensure a bare clone exists for the repo. Returns the bare clone path."""
+    os.makedirs(CLONES_BASE, exist_ok=True)
+    repo_slug = repo_full_name.replace("/", "_")
+    bare_path = os.path.join(CLONES_BASE, f"{repo_slug}.git")
+
+    if os.path.isdir(bare_path):
+        # Already cloned — just fetch latest
+        logger.info("Bare clone exists at %s, fetching...", bare_path)
+        _git(["fetch", "--all"], cwd=bare_path, timeout=120)
+        return bare_path
+
+    # Clone as bare
+    logger.info("Creating bare clone of %s", repo_full_name)
+    _run(["repo", "clone", repo_full_name, bare_path, "--", "--bare"], timeout=300)
+    return bare_path
 
 
 def get_pr_head_branch(repo_full_name: str, pr_number: int) -> str:
@@ -121,12 +175,62 @@ def get_pr_head_branch(repo_full_name: str, pr_number: int) -> str:
     return json.loads(raw)["headRefName"]
 
 
-def checkout_pr_branch(repo_dir: str, pr_branch: str) -> None:
-    """Checkout the PR's head branch in a cloned repo."""
-    # Fetch the branch first in case it wasn't included in the clone
-    _git(["fetch", "origin", pr_branch], cwd=repo_dir)
-    _git(["checkout", pr_branch], cwd=repo_dir)
-    logger.info("Checked out branch %s", pr_branch)
+def create_worktree(repo_full_name: str, pr_number: int, pr_branch: str) -> str:
+    """Create a git worktree for a specific PR branch. Returns the worktree path.
+    If the worktree already exists, returns the existing path."""
+    bare_path = _ensure_bare_clone(repo_full_name)
+
+    os.makedirs(WORKTREES_BASE, exist_ok=True)
+    repo_slug = repo_full_name.replace("/", "_")
+    worktree_path = os.path.join(WORKTREES_BASE, f"{repo_slug}_pr{pr_number}")
+
+    if os.path.isdir(worktree_path):
+        logger.info("Worktree already exists at %s, resetting...", worktree_path)
+        # Fetch latest into the worktree directly and reset
+        _git(["fetch", "origin", pr_branch], cwd=worktree_path, timeout=120)
+        _git(["reset", "--hard", "FETCH_HEAD"], cwd=worktree_path)
+        _git(["clean", "-fd"], cwd=worktree_path)
+        return worktree_path
+
+    # Fetch the branch in the bare clone
+    _git(["fetch", "origin", f"{pr_branch}:{pr_branch}"], cwd=bare_path, timeout=120)
+
+    # Create worktree
+    _git(["worktree", "add", worktree_path, pr_branch], cwd=bare_path)
+    logger.info("Created worktree at %s on branch %s", worktree_path, pr_branch)
+    return worktree_path
+
+
+def remove_worktree(repo_full_name: str, pr_number: int) -> None:
+    """Remove a worktree for a PR."""
+    repo_slug = repo_full_name.replace("/", "_")
+    bare_path = os.path.join(CLONES_BASE, f"{repo_slug}.git")
+    worktree_path = os.path.join(WORKTREES_BASE, f"{repo_slug}_pr{pr_number}")
+
+    if os.path.isdir(worktree_path):
+        import shutil
+        shutil.rmtree(worktree_path, ignore_errors=True)
+
+    if os.path.isdir(bare_path):
+        # Prune stale worktree references
+        try:
+            _git(["worktree", "prune"], cwd=bare_path)
+        except RuntimeError:
+            pass
+
+    logger.info("Removed worktree for PR #%s", pr_number)
+
+
+def list_worktrees() -> list[dict]:
+    """List all existing worktrees."""
+    if not os.path.isdir(WORKTREES_BASE):
+        return []
+    result = []
+    for entry in os.listdir(WORKTREES_BASE):
+        full = os.path.join(WORKTREES_BASE, entry)
+        if os.path.isdir(full):
+            result.append({"name": entry, "path": full})
+    return result
 
 
 def has_changes(repo_dir: str) -> bool:
@@ -139,11 +243,5 @@ def has_changes(repo_dir: str) -> bool:
 
 def get_diff(repo_dir: str) -> str:
     """Get the full diff of uncommitted changes (staged + unstaged)."""
-    # Stage everything first so diff shows all changes
     _git(["add", "-A"], cwd=repo_dir)
     return _git(["diff", "--cached"], cwd=repo_dir)
-
-
-def delete_remote_branch(repo_full_name: str, branch_name: str) -> None:
-    """Delete a remote branch."""
-    _run(["api", f"repos/{repo_full_name}/git/refs/heads/{branch_name}", "--method", "DELETE"])

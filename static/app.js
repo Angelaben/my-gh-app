@@ -393,8 +393,20 @@ function renderReviewResults(review) {
       btn.disabled = true;
       btn.textContent = "Publishing...";
       try {
-        await api("POST", "/comment/publish", { repo: full_name, pr_number: pr.number, body });
-        btn.textContent = "Published";
+        if (f.file && f.line) {
+          // Post as inline review comment on the specific file/line
+          await api("POST", "/comment/inline", {
+            repo: full_name,
+            pr_number: pr.number,
+            body,
+            path: f.file,
+            line: f.line,
+          });
+          btn.textContent = "Published (inline)";
+        } else {
+          await api("POST", "/comment/publish", { repo: full_name, pr_number: pr.number, body });
+          btn.textContent = "Published";
+        }
         btn.style.borderColor = "var(--success)";
         btn.style.color = "var(--success)";
         toast("Comment published to PR");
@@ -629,8 +641,8 @@ async function streamFix(btn, idx, comment) {
       const resultBar = document.createElement("div");
       resultBar.className = "fix-result-bar";
       resultBar.innerHTML = `
-        <span class="fix-label">Clone:</span>
-        <code class="fix-clone-path">${escapeHtml(resultData.clone_path)}</code>
+        <span class="fix-label">Worktree:</span>
+        <code class="fix-worktree-path">${escapeHtml(resultData.worktree_path)}</code>
         <button class="btn btn-small btn-accent show-diff-btn">Show Diff</button>
       `;
       card.appendChild(resultBar);
@@ -653,7 +665,7 @@ async function streamFix(btn, idx, comment) {
       instructions.className = "fix-instructions";
       instructions.innerHTML = `
         <span>To review and push:</span>
-        <code>cd ${escapeHtml(resultData.clone_path)} && git diff --cached</code>
+        <code>cd ${escapeHtml(resultData.worktree_path)} && git diff --cached</code>
         <code>git commit -m "fix: address review comment" && git push</code>
       `;
       card.appendChild(instructions);

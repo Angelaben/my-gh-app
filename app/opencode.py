@@ -196,11 +196,27 @@ async def stream_fix_in_repo(
     os.makedirs(settings_dir, exist_ok=True)
     settings = {
         "permissions": {
-            "allow": ["bash", "edit", "write", "read", "grep", "glob"],
+            "allow": ["Bash", "Edit", "Write", "Read", "Grep", "Glob",
+                       "bash", "edit", "write", "read", "grep", "glob"],
         }
     }
     with open(os.path.join(settings_dir, "settings.json"), "w") as f:
         json.dump(settings, f)
+
+    # Also write opencode.json at project root with permission overrides
+    project_config = {
+        "agent": {
+            "build": {
+                "permission": {
+                    "bash": "allow",
+                    "edit": "allow",
+                    "write": "allow",
+                }
+            }
+        }
+    }
+    with open(os.path.join(repo_dir, "opencode.json"), "w") as f:
+        json.dump(project_config, f)
 
     prompt = f"""You are fixing a code review comment on PR #{pr_number} in {repo_full_name}.
 The reviewer left this comment:
