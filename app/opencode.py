@@ -142,7 +142,11 @@ def parse_review_output(output: str) -> dict:
         start = output.find("{")
         end = output.rfind("}") + 1
         if start >= 0 and end > start:
-            return json.loads(output[start:end])
+            parsed = json.loads(output[start:end])
+            for f in parsed.get("findings", []):
+                if "criticality" in f and "priority" not in f:
+                    f["priority"] = f.pop("criticality")
+            return parsed
     except json.JSONDecodeError:
         pass
 

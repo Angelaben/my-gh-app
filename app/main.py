@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -424,4 +425,5 @@ def clear_review_cache(owner: str, repo: str, pr_number: int):
 
 # --- Static files ---
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+Path("dist").mkdir(exist_ok=True)
+app.mount("/", StaticFiles(directory="dist", html=True), name="static")

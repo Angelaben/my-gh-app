@@ -54,7 +54,21 @@ def list_prs(repo_full_name: str) -> list[dict]:
         "--limit", "50",
         "--state", "open",
     ])
-    return json.loads(raw) if raw else []
+    prs = json.loads(raw) if raw else []
+    return [
+        {
+            "number": pr["number"],
+            "title": pr["title"],
+            "author": pr.get("author", {}).get("login", "unknown") if isinstance(pr.get("author"), dict) else pr.get("author", "unknown"),
+            "branch": pr["headRefName"],
+            "base_branch": pr["baseRefName"],
+            "additions": pr.get("additions", 0),
+            "deletions": pr.get("deletions", 0),
+            "updated_at": pr["updatedAt"],
+            "url": pr["url"],
+        }
+        for pr in prs
+    ]
 
 
 def get_pr_diff(repo_full_name: str, pr_number: int) -> str:

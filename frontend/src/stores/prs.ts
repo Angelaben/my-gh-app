@@ -1,0 +1,118 @@
+import { writable } from 'svelte/store';
+import type { PR, Review, Comment, CommentAnalysis } from '../lib/types';
+import { api } from '../lib/api';
+
+export const prs = writable<PR[]>([]);
+export const activePR = writable<PR | null>(null);
+export const activeTab = writable<'review' | 'comments'>('review');
+export const cachedReview = writable<Review | null>(null);
+export const comments = writable<Comment[]>([]);
+
+export async function loadPRs(owner: string, repo: string, forceRefresh = false): Promise<void> {
+  if (forceRefresh) {
+    const data = await api.post<PR[]>(`/prs/${owner}/${repo}/refresh`);
+    prs.set(data);
+  } else {
+    const data = await api.get<PR[]>(`/prs/${owner}/${repo}`);
+    prs.set(data);
+  }
+}
+
+
+export async function loadComments(owner: string, repo: string, prNumber: number): Promise<void> {
+  const data = await api.get<RawPRDetail>(`/pr/${owner}/${repo}/${prNumber}`);
+  const raw: RawComment[] = [
+    ...(data.comments ?? []),
+    ...(data.reviews ?? []).filter((r) => r.body),
+    ...(data.review_comments ?? []),
+  ];
+  comments.set(raw.map((c, i) => normalizeComment(c, i)));
+}
+
+export async function analyzeComments(owner: string, repo: string, prNumber: number): Promise<void> {
+  const data = await api.post<{ comments: RawComment[]; analysis: RawAnalysis[] }>(
+    `/comments/${owner}/${repo}/${prNumber}/analyze`
+  );
+  const authorStr = (author: string | { login: string }) => typeof author === 'string' ? author : author.login;
+  const analysisMap = new Map(data.analysis.map((a) => [a.author, a]));
+  comments.set(
+    data.comments.map((c, i) => {
+      const raw = normalizeComment(c, i);
+      const analysis = analysisMap.get(authorStr(c.author));
+      if (analysis) {
+        raw.analysis = {
+          valid: analysis.valid,
+          interest: analysis.interest as CommentAnalysis['interest'],
+          critical: analysis.criticality === 'P0',
+          priority: analysis.criticality as CommentAnalysis['priority'],
+        };
+      }
+      return raw;
+    })
+  );
+}
+
+export async function publishFinding(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  finding: import('../lib/types').Finding
+): Promise<void> {
+  const fullRepo = `${owner}/${repo}`;
+  const body = finding.suggestion
+    ? `**${finding.priority}: ${finding.title}**\n\n${finding.description}\n\n**Suggestion:**\n${finding.suggestion}`
+    : `**${finding.priority}: ${finding.title}**\n\n${finding.description}`;
+
+  if (finding.file && finding.line != null) {
+    await api.post('/comment/inline', {
+      repo: fullRepo,
+      pr_number: prNumber,
+      body,
+      path: finding.file,
+      line: finding.line,
+    });
+  } else {
+    await api.post('/comment/publish', {
+      repo: fullRepo,
+      pr_number: prNumber,
+      body,
+    });
+  }
+}
+
+// ── Internal types for raw API responses ──
+
+interface RawComment {
+  author: string | { login: string };
+  body: string;
+  path?: string;
+  line?: number;
+  created_at: string;
+}
+
+interface RawAnalysis {
+  author: string;
+  criticality: string;
+  valid: boolean;
+  interest: string;
+  summary: string;
+  original_body: string;
+}
+
+interface RawPRDetail {
+  comments?: RawComment[];
+  reviews?: RawComment[];
+  review_comments?: RawComment[];
+}
+
+function normalizeComment(c: RawComment, index: number): Comment {
+  const authorStr = typeof c.author === 'string' ? c.author : c.author.login;
+  return {
+    id: index,
+    author: authorStr,
+    body: c.body,
+    file: c.path,
+    line: c.line,
+    created_at: c.created_at,
+  };
+}

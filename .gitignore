@@ -19,3 +19,7 @@ opencode.json
 *.swo
 .idea/
 .vscode/
+
+# Node
+node_modules/
+dist/

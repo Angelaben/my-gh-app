@@ -1,0 +1,221 @@
+<script lang="ts">
+  import type { Comment, Repo, PR } from '../lib/types';
+  import { api } from '../lib/api';
+  import { showToast } from '../stores/ui';
+
+  let { comment, repo, pr }: { comment: Comment; repo: Repo; pr: PR } = $props();
+
+  type FixStatus = 'idle' | 'running' | 'done' | 'error';
+
+  let fixStatus = $state<FixStatus>('idle');
+  let fixLog = $state('');
+  let fixResult: { worktree_path: string; branch: string; diff: string; has_changes: boolean } | null = $state(null);
+  let fixError = $state('');
+  let pushing = $state(false);
+  let pushDone = $state(false);
+  let newPrUrl = $state('');
+
+  async function runFix() {
+    fixStatus = 'running';
+    fixLog = '';
+    fixResult = null;
+    fixError = '';
+
+    const res = await fetch('/api/comment/fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: repo.full_name, pr_number: pr.number, comment_body: comment.body }),
+    });
+
+    if (!res.ok || !res.body) {
+      fixStatus = 'error';
+      fixError = 'Request failed';
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
+      for (const block of blocks) {
+        const line = block.trim();
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5).trim());
+          if (ev.type === 'status' || ev.type === 'chunk') {
+            fixLog += ev.text;
+          } else if (ev.type === 'result') {
+            fixResult = ev;
+            fixStatus = 'done';
+          } else if (ev.type === 'error') {
+            fixError = ev.text ?? ev.message ?? 'Unknown error';
+            fixStatus = 'error';
+          }
+        } catch { /* ignore malformed */ }
+      }
+    }
+
+    if (fixStatus === 'running') fixStatus = 'done';
+  }
+
+  async function pushFix() {
+    if (!fixResult) return;
+    pushing = true;
+    try {
+      await api.post('/comment/fix/push', {
+        repo: repo.full_name,
+        pr_number: pr.number,
+        branch: fixResult.branch,
+        diff: fixResult.diff,
+        comment_body: comment.body,
+      });
+      pushDone = true;
+      showToast('Fix pushed to PR branch', 'success');
+    } catch {
+      showToast('Push failed', 'error');
+    } finally {
+      pushing = false;
+    }
+  }
+
+  async function newPr() {
+    if (!fixResult) return;
+    pushing = true;
+    try {
+      const res = await api.post<{ pr_url: string; pr_title: string; branch: string }>(
+        '/comment/fix/new-pr',
+        {
+          repo: repo.full_name,
+          pr_number: pr.number,
+          branch: fixResult.branch,
+          diff: fixResult.diff,
+          comment_body: comment.body,
+        }
+      );
+      newPrUrl = res.pr_url;
+      showToast(`PR created: ${res.pr_title}`, 'success');
+    } catch {
+      showToast('Failed to create PR', 'error');
+    } finally {
+      pushing = false;
+    }
+  }
+
+  const priorityClass = $derived(
+    comment.analysis?.priority ? `badge-${comment.analysis.priority.toLowerCase()}` : ''
+  );
+</script>
+
+<div class="comment-card">
+  <div class="comment-header">
+    <span class="author">{comment.author}</span>
+    {#if comment.file}
+      <span class="file-ref">{comment.file}{comment.line ? `:${comment.line}` : ''}</span>
+    {/if}
+    {#if comment.analysis}
+      <div class="analysis-badges">
+        <span class="badge {priorityClass}">{comment.analysis.priority}</span>
+        <span class="badge badge-p3">Interest: {comment.analysis.interest}</span>
+        <span class="badge" class:badge-p0={!comment.analysis.valid} class:badge-p3={comment.analysis.valid}>
+          {comment.analysis.valid ? 'Valid' : 'Invalid'}
+        </span>
+      </div>
+    {/if}
+  </div>
+
+  <p class="comment-body">{comment.body}</p>
+
+  {#if comment.analysis}
+    <div class="comment-actions">
+      {#if fixStatus === 'idle'}
+        <button class="btn btn-accent btn-sm" onclick={runFix}>⚡ Fix & Submit PR</button>
+      {:else if fixStatus === 'running'}
+        <button class="btn btn-sm" disabled>Implementing fix…</button>
+      {:else if fixStatus === 'done' && fixResult?.has_changes}
+        {#if pushDone}
+          <span class="fix-ok">✓ Pushed to PR branch</span>
+        {:else if newPrUrl}
+          <span class="fix-ok">✓ PR created</span>
+          <a class="pr-link" href={newPrUrl} target="_blank" rel="noreferrer">{newPrUrl}</a>
+        {:else}
+          <button class="btn btn-success btn-sm" onclick={pushFix} disabled={pushing}>
+            {pushing ? '…' : '↑ Push to PR branch'}
+          </button>
+          <button class="btn btn-sm" onclick={newPr} disabled={pushing}>
+            {pushing ? '…' : '+ New PR'}
+          </button>
+        {/if}
+      {:else if fixStatus === 'done'}
+        <span style="color:var(--text-muted);font-size:11px;">No changes made</span>
+      {:else if fixStatus === 'error'}
+        <span class="fix-err">✕ {fixError}</span>
+        <button class="btn btn-sm" onclick={runFix}>Retry</button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if fixLog}
+    <details class="fix-log" open={fixStatus === 'running'}>
+      <summary>Fix output</summary>
+      <pre class="log-body">{fixLog}</pre>
+    </details>
+  {/if}
+
+  {#if fixResult?.has_changes && fixResult.diff}
+    <details class="fix-log">
+      <summary>Diff</summary>
+      <pre class="log-body diff">{fixResult.diff}</pre>
+    </details>
+  {/if}
+</div>
+
+<style>
+  .comment-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin-bottom: 6px;
+    animation: fadeSlide 0.25s ease both;
+    transition: border-color var(--transition-base);
+  }
+  .comment-card:hover { border-color: var(--glass-border-hover); }
+
+  .comment-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .author { font-size: 11px; font-weight: 700; color: var(--accent); }
+  .file-ref { font-size: 10px; color: var(--text-muted); font-style: italic; }
+  .analysis-badges { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+  .comment-body { font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; }
+
+  .comment-actions {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap;
+  }
+
+  .fix-ok { font-size: 11px; color: var(--success); }
+  .fix-err { font-size: 11px; color: var(--p0); }
+  .pr-link { font-size: 10px; color: var(--accent); text-decoration: underline; word-break: break-all; }
+
+  .fix-log { margin-top: 8px; }
+  .fix-log summary {
+    font-size: 10px; color: var(--accent); text-transform: uppercase;
+    letter-spacing: 0.06em; cursor: pointer; font-weight: 600;
+  }
+  .fix-log summary:hover { color: var(--accent-hover); }
+  .log-body {
+    margin-top: 6px; font-size: 11px; color: var(--code-text);
+    background: var(--code-bg); border: 1px solid var(--border-active);
+    border-radius: var(--radius-sm); padding: 10px 12px;
+    white-space: pre-wrap; overflow-x: auto; max-height: 300px;
+    overflow-y: auto; line-height: 1.5; font-weight: 400;
+  }
+  .diff { color: var(--text-primary); }
+</style>
