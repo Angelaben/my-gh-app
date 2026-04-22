@@ -27,7 +27,7 @@ async def _run_opencode(message: str, context: str | None = None, timeout: int =
 
 
 async def _stream_opencode(
-    message: str, context: str | None = None, timeout: int = 300
+    message: str, context: str | None = None, timeout: int = 300, cwd: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream opencode output line by line as it runs."""
     prompt = message
@@ -41,10 +41,14 @@ async def _stream_opencode(
         f.close()
         context_file = f.name
 
+    extra_args = []
+    if cwd:
+        extra_args = ["--dir", cwd]
+
     try:
         if context_file:
             proc = await asyncio.create_subprocess_exec(
-                "opencode", "run",
+                "opencode", "run", *extra_args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -52,19 +56,34 @@ async def _stream_opencode(
             )
             with open(context_file) as fh:
                 input_bytes = fh.read().encode()
-            # Write stdin and close it, then read stdout streaming
             assert proc.stdin is not None
             proc.stdin.write(input_bytes)
             proc.stdin.close()
         else:
             proc = await asyncio.create_subprocess_exec(
-                "opencode", "run", prompt,
+                "opencode", "run", *extra_args, prompt,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_clean_env(),
             )
 
         assert proc.stdout is not None
+        assert proc.stderr is not None
+
+        # Read stdout and stderr concurrently
+        async def _read_stderr():
+            stderr_lines = []
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    break
+                decoded = line.decode().rstrip()
+                logger.warning("[opencode stderr] %s", decoded)
+                stderr_lines.append(decoded)
+            return stderr_lines
+
+        stderr_task = asyncio.create_task(_read_stderr())
+
         # Read stdout line by line as it streams
         while True:
             try:
@@ -76,10 +95,18 @@ async def _stream_opencode(
             if not line:
                 break
             decoded = line.decode()
+            logger.info("[opencode] %s", decoded.rstrip())
             yield decoded
 
         await proc.wait()
         logger.info("opencode exit code: %s", proc.returncode)
+
+        # Yield stderr as well so the frontend can see it
+        stderr_lines = await stderr_task
+        if stderr_lines:
+            yield "\n--- stderr ---\n"
+            for err_line in stderr_lines:
+                yield err_line + "\n"
 
     finally:
         if context_file:
@@ -160,8 +187,30 @@ IMPORTANT: Return ONLY the JSON array, no markdown fences, no extra text."""
     return []
 
 
-async def implement_fix(repo_full_name: str, pr_number: int, comment_body: str) -> str:
-    """Ask opencode to implement a fix for a comment."""
-    message = f"Implement a fix for this code review comment on PR #{pr_number} in {repo_full_name}. The comment is attached. Clone the repo if needed, checkout the PR branch, implement the fix, and describe what you did."
+async def stream_fix_in_repo(
+    repo_dir: str, repo_full_name: str, pr_number: int, comment_body: str,
+) -> AsyncGenerator[str, None]:
+    """Run opencode in a cloned repo directory to implement a fix. Streams output."""
+    # Write .opencode/settings.json to allow all tools in this temp clone
+    settings_dir = os.path.join(repo_dir, ".opencode")
+    os.makedirs(settings_dir, exist_ok=True)
+    settings = {
+        "permissions": {
+            "allow": ["bash", "edit", "write", "read", "grep", "glob"],
+        }
+    }
+    with open(os.path.join(settings_dir, "settings.json"), "w") as f:
+        json.dump(settings, f)
 
-    return await _run_opencode(message, context=comment_body, timeout=600)
+    prompt = f"""You are fixing a code review comment on PR #{pr_number} in {repo_full_name}.
+The reviewer left this comment:
+
+{comment_body}
+
+You are currently in the repository checkout on the PR branch.
+Read the relevant files, understand the issue, and EDIT the files to implement the fix.
+Make minimal, targeted changes. Do NOT create new files unless absolutely necessary.
+Do NOT run tests or build commands — just make the code changes."""
+
+    async for chunk in _stream_opencode(prompt, cwd=repo_dir, timeout=600):
+        yield chunk

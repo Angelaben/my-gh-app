@@ -1,8 +1,11 @@
 """Wrapper around the gh CLI for GitHub interactions."""
 
 import json
+import logging
 import os
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_env() -> dict[str, str]:
@@ -13,10 +16,21 @@ def _clean_env() -> dict[str, str]:
     return env
 
 
-def _run(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60, env=_clean_env())
+def _run(args: list[str], cwd: str | None = None, timeout: int = 60) -> str:
+    result = subprocess.run(
+        ["gh", *args], capture_output=True, text=True, timeout=timeout, env=_clean_env(), cwd=cwd
+    )
     if result.returncode != 0:
         raise RuntimeError(f"gh command failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _git(args: list[str], cwd: str, timeout: int = 120) -> str:
+    """Run a git command in a specific directory."""
+    env = _clean_env()
+    result = subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd)
+    if result.returncode != 0:
+        raise RuntimeError(f"git command failed: {result.stderr.strip()}")
     return result.stdout.strip()
 
 
@@ -89,3 +103,47 @@ def post_comment(repo_full_name: str, pr_number: int, body: str) -> str:
         "--repo", repo_full_name,
         "--body", body,
     ])
+
+
+# --- Clone / Branch ---
+
+
+def clone_repo(repo_full_name: str, target_dir: str) -> str:
+    """Clone a repository into target_dir. Returns the clone path."""
+    _run(["repo", "clone", repo_full_name, target_dir], timeout=300)
+    logger.info("Cloned %s into %s", repo_full_name, target_dir)
+    return target_dir
+
+
+def get_pr_head_branch(repo_full_name: str, pr_number: int) -> str:
+    """Get the head branch name for a PR."""
+    raw = _run(["pr", "view", str(pr_number), "--repo", repo_full_name, "--json", "headRefName"])
+    return json.loads(raw)["headRefName"]
+
+
+def checkout_pr_branch(repo_dir: str, pr_branch: str) -> None:
+    """Checkout the PR's head branch in a cloned repo."""
+    # Fetch the branch first in case it wasn't included in the clone
+    _git(["fetch", "origin", pr_branch], cwd=repo_dir)
+    _git(["checkout", pr_branch], cwd=repo_dir)
+    logger.info("Checked out branch %s", pr_branch)
+
+
+def has_changes(repo_dir: str) -> bool:
+    """Check if there are uncommitted changes."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain"], capture_output=True, text=True, cwd=repo_dir, env=_clean_env()
+    )
+    return bool(result.stdout.strip())
+
+
+def get_diff(repo_dir: str) -> str:
+    """Get the full diff of uncommitted changes (staged + unstaged)."""
+    # Stage everything first so diff shows all changes
+    _git(["add", "-A"], cwd=repo_dir)
+    return _git(["diff", "--cached"], cwd=repo_dir)
+
+
+def delete_remote_branch(repo_full_name: str, branch_name: str) -> None:
+    """Delete a remote branch."""
+    _run(["api", f"repos/{repo_full_name}/git/refs/heads/{branch_name}", "--method", "DELETE"])

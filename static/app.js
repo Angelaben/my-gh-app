@@ -451,11 +451,51 @@ function renderCommentsList(comments, analysis) {
   const { full_name } = state.currentRepo;
   const pr = state.currentPR;
 
-  el.innerHTML = comments.map((c, i) => {
-    const a = analysis?.[i];
+  // Store for filtering
+  state.currentPR._commentsData = comments;
+  state.currentPR._analysisData = analysis;
+
+  // --- Build filter bar ---
+  const authors = [...new Set(comments.map((c) => c.author?.login || "unknown"))].sort();
+  const hasAnalysis = analysis && analysis.length > 0;
+  const crits = hasAnalysis
+    ? [...new Set(analysis.map((a) => a?.criticality || "Unrated"))].sort()
+    : [];
+
+  const authorFilter = state.currentPR._authorFilter || "";
+  const critFilter = state.currentPR._critFilter || "";
+
+  let filterHtml = `<div class="filter-bar">
+    <label>Author:
+      <select id="filter-author">
+        <option value="">All authors</option>
+        ${authors.map((a) => `<option value="${a}" ${authorFilter === a ? "selected" : ""}>${a}</option>`).join("")}
+      </select>
+    </label>
+    <label>Severity:
+      <select id="filter-crit" ${!hasAnalysis ? 'disabled title="Run Analyze first"' : ""}>
+        <option value="">All severities</option>
+        ${crits.map((c) => `<option value="${c}" ${critFilter === c ? "selected" : ""}>${c}</option>`).join("")}
+      </select>
+    </label>
+  </div>`;
+
+  // --- Apply filters ---
+  let filtered = comments.map((c, i) => ({ comment: c, analysis: analysis?.[i] || null, idx: i }));
+  if (authorFilter) {
+    filtered = filtered.filter((r) => (r.comment.author?.login || "unknown") === authorFilter);
+  }
+  if (critFilter) {
+    filtered = filtered.filter((r) => (r.analysis?.criticality || "Unrated") === critFilter);
+  }
+
+  // --- Render ---
+  let cardsHtml = filtered.map((r) => {
+    const c = r.comment;
+    const a = r.analysis;
     const crit = a ? a.criticality?.toLowerCase() : null;
     return `
-      <div class="comment-card">
+      <div class="comment-card" id="comment-card-${r.idx}">
         <div class="comment-header">
           <span class="author">${c.author?.login || "unknown"}</span>
           ${c.path ? `<span class="file-ref" style="font-size:11px;color:var(--text-muted);">${escapeHtml(c.path)}${c.line ? ':' + c.line : ''}</span>` : ""}
@@ -472,40 +512,174 @@ function renderCommentsList(comments, analysis) {
           </div>
         ` : ""}
         <div class="comment-actions">
-          <button class="btn btn-small" data-fix="${i}">Implement Fix</button>
+          <button class="btn btn-small btn-accent" data-fix="${r.idx}">Fix & Submit PR</button>
         </div>
       </div>
     `;
   }).join("");
 
+  if (!filtered.length) {
+    cardsHtml = `<div class="empty-state" style="height:auto;padding:40px;"><p>No comments match the current filters.</p></div>`;
+  }
+
+  el.innerHTML = filterHtml + cardsHtml;
+
+  // --- Bind filter events ---
+  $("#filter-author").addEventListener("change", (e) => {
+    state.currentPR._authorFilter = e.target.value;
+    renderCommentsList(state.currentPR._commentsData, state.currentPR._analysisData);
+  });
+  if (hasAnalysis) {
+    $("#filter-crit").addEventListener("change", (e) => {
+      state.currentPR._critFilter = e.target.value;
+      renderCommentsList(state.currentPR._commentsData, state.currentPR._analysisData);
+    });
+  }
+
+  // --- Bind suggest fix buttons ---
   el.querySelectorAll("[data-fix]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const c = comments[parseInt(btn.dataset.fix)];
-      btn.disabled = true;
-      btn.textContent = "Delegating to opencode...";
-      try {
-        const result = await api("POST", "/comment/fix", { repo: full_name, pr_number: pr.number, comment_body: c.body });
-        btn.textContent = "Fix completed";
-        btn.style.color = "var(--success)";
-        toast("Fix implemented by opencode");
-        // Show result below the button
-        const resultDiv = document.createElement("div");
-        resultDiv.style.cssText = "margin-top:8px;padding:10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;max-height:200px;overflow-y:auto;";
-        resultDiv.textContent = result.result || "Done";
-        btn.parentElement.appendChild(resultDiv);
-      } catch (e) {
-        btn.textContent = "Fix failed";
-        btn.disabled = false;
-        toast(e.message, "error");
-      }
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.fix);
+      const c = comments[idx];
+      streamFix(btn, idx, c);
     });
   });
+}
+
+async function streamFix(btn, idx, comment) {
+  const { full_name } = state.currentRepo;
+  const pr = state.currentPR;
+
+  btn.disabled = true;
+  btn.textContent = "Cloning & fixing...";
+
+  // Create streaming output area below the comment card
+  const card = $(`#comment-card-${idx}`);
+  // Remove any previous output
+  card.querySelectorAll(".fix-stream-output, .fix-result-bar").forEach((el) => el.remove());
+
+  const outputDiv = document.createElement("div");
+  outputDiv.className = "fix-stream-output";
+  card.appendChild(outputDiv);
+
+  function appendStatus(text) {
+    const line = document.createElement("div");
+    line.className = "fix-status-line";
+    line.textContent = `> ${text}`;
+    outputDiv.appendChild(line);
+    outputDiv.scrollTop = outputDiv.scrollHeight;
+  }
+
+  try {
+    const res = await fetch("/api/comment/fix", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: full_name, pr_number: pr.number, comment_body: comment.body }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Request failed");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let resultData = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "status") {
+            appendStatus(data.text);
+            btn.textContent = data.text.slice(0, 30) + (data.text.length > 30 ? "..." : "");
+          } else if (data.type === "chunk") {
+            outputDiv.textContent += data.text;
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+          } else if (data.type === "error") {
+            appendStatus(`ERROR: ${data.text}`);
+            btn.textContent = "Failed";
+            btn.style.color = "var(--p0)";
+          } else if (data.type === "result") {
+            resultData = data;
+          } else if (data.type === "done") {
+            // finished
+          }
+        } catch (e) {
+          // skip malformed events
+        }
+      }
+    }
+
+    if (resultData && resultData.has_changes) {
+      btn.textContent = "Changes ready";
+      btn.style.color = "var(--success)";
+      toast("Fix applied locally — review the changes");
+
+      // Add result bar with clone path and diff
+      const resultBar = document.createElement("div");
+      resultBar.className = "fix-result-bar";
+      resultBar.innerHTML = `
+        <span class="fix-label">Clone:</span>
+        <code class="fix-clone-path">${escapeHtml(resultData.clone_path)}</code>
+        <button class="btn btn-small btn-accent show-diff-btn">Show Diff</button>
+      `;
+      card.appendChild(resultBar);
+
+      // Show diff on click
+      resultBar.querySelector(".show-diff-btn").addEventListener("click", () => {
+        let diffDiv = card.querySelector(".fix-diff-output");
+        if (diffDiv) {
+          diffDiv.remove();
+          return;
+        }
+        diffDiv = document.createElement("div");
+        diffDiv.className = "fix-diff-output fix-stream-output";
+        diffDiv.textContent = resultData.diff || "(no diff available)";
+        card.appendChild(diffDiv);
+      });
+
+      // Instructions
+      const instructions = document.createElement("div");
+      instructions.className = "fix-instructions";
+      instructions.innerHTML = `
+        <span>To review and push:</span>
+        <code>cd ${escapeHtml(resultData.clone_path)} && git diff --cached</code>
+        <code>git commit -m "fix: address review comment" && git push</code>
+      `;
+      card.appendChild(instructions);
+
+    } else if (resultData && !resultData.has_changes) {
+      btn.textContent = "No changes made";
+      btn.style.color = "var(--text-muted)";
+    } else if (btn.textContent !== "Failed") {
+      btn.textContent = "Complete";
+      btn.style.color = "var(--success)";
+    }
+  } catch (e) {
+    btn.textContent = "Failed";
+    btn.disabled = false;
+    appendStatus(`ERROR: ${e.message}`);
+    toast(e.message, "error");
+  }
 }
 
 async function analyzeComments() {
   const { owner, name } = state.currentRepo;
   const pr = state.currentPR;
   const el = $("#comments-content");
+  // Reset filters on new analysis
+  state.currentPR._authorFilter = "";
+  state.currentPR._critFilter = "";
   el.innerHTML = `<div class="loading"><div class="spinner"></div>Analyzing comments with opencode... this may take a minute.</div>`;
 
   try {

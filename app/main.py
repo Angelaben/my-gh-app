@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +13,7 @@ from pydantic import BaseModel
 from app import cache, gh, opencode
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="gh-review-tool")
 
@@ -195,11 +198,72 @@ async def analyze_comments(owner: str, repo: str, pr_number: int):
 
 @app.post("/api/comment/fix")
 async def implement_fix(data: ImplementFix):
-    try:
-        result = await opencode.implement_fix(data.repo, data.pr_number, data.comment_body)
-        return {"result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """SSE endpoint: clone repo, checkout PR branch, run opencode to fix, show diff.
+    Does NOT push or create PR — leaves the clone for the user to review."""
+
+    def _sse(event: dict) -> str:
+        return f"data: {json.dumps(event)}\n\n"
+
+    async def event_stream():
+        try:
+            # Step 1: Get PR branch info
+            yield _sse({"type": "status", "text": "Fetching PR info..."})
+            pr_branch = gh.get_pr_head_branch(data.repo, data.pr_number)
+            logger.info("PR #%s head branch: %s", data.pr_number, pr_branch)
+
+            # Step 2: Clone (full clone, NOT temp — user needs to access it)
+            # Use a persistent directory under ~/.gh-review-tool/clones/
+            clone_base = os.path.expanduser("~/.gh-review-tool/clones")
+            os.makedirs(clone_base, exist_ok=True)
+            repo_slug = data.repo.replace("/", "_")
+            clone_path = os.path.join(clone_base, f"{repo_slug}_pr{data.pr_number}_{int(time.time())}")
+
+            yield _sse({"type": "status", "text": f"Cloning {data.repo}..."})
+            gh.clone_repo(data.repo, clone_path)
+
+            # Step 3: Checkout PR branch
+            yield _sse({"type": "status", "text": f"Checking out {pr_branch}..."})
+            gh.checkout_pr_branch(clone_path, pr_branch)
+            yield _sse({"type": "status", "text": f"On branch {pr_branch}"})
+
+            # Step 4: Run opencode in the clone
+            yield _sse({"type": "status", "text": "Running opencode to implement fix..."})
+            full_output: list[str] = []
+            async for chunk in opencode.stream_fix_in_repo(
+                clone_path, data.repo, data.pr_number, data.comment_body
+            ):
+                full_output.append(chunk)
+                for line in chunk.splitlines(keepends=True):
+                    yield _sse({"type": "chunk", "text": line})
+
+            # Step 5: Check if opencode made changes
+            if not gh.has_changes(clone_path):
+                yield _sse({"type": "error", "text": "opencode did not make any file changes."})
+                yield _sse({"type": "result", "clone_path": clone_path, "has_changes": False, "diff": "", "text": "".join(full_output).strip()})
+            else:
+                diff_text = gh.get_diff(clone_path)
+                yield _sse({"type": "status", "text": f"Changes ready in {clone_path}"})
+                yield _sse({
+                    "type": "result",
+                    "clone_path": clone_path,
+                    "branch": pr_branch,
+                    "has_changes": True,
+                    "diff": diff_text[:10000],
+                    "text": "".join(full_output).strip(),
+                })
+
+            yield _sse({"type": "done"})
+
+        except Exception as e:
+            logger.exception("Fix flow failed")
+            yield _sse({"type": "error", "text": str(e)})
+            yield _sse({"type": "done"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.delete("/api/review/{owner}/{repo}/{pr_number}/cache")
