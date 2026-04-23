@@ -1,6 +1,9 @@
 # Cache
 .cache/
 
+# Git worktrees
+.worktrees/
+
 # Python
 __pycache__/
 *.pyc

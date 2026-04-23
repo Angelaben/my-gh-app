@@ -8,6 +8,13 @@ dependencies = [
     "uvicorn>=0.34",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
