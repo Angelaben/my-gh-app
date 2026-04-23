@@ -3,6 +3,7 @@
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-angelaben-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/angelaben)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![Svelte](https://img.shields.io/badge/frontend-Svelte%205-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 A local web dashboard for reviewing GitHub PRs with AI — powered by [opencode](https://opencode.ai).
 
