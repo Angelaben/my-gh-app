@@ -58,7 +58,15 @@ class GitHubCLIAdapter(VCSPort):
         ]
 
     def get_diff(self, repo_full_name: str, pr_number: int) -> str:
-        return self._run(["pr", "diff", str(pr_number), "--repo", repo_full_name])
+        try:
+            return self._run(["pr", "diff", str(pr_number), "--repo", repo_full_name])
+        except VCSError:
+            # Fallback for merged/closed PRs where gh pr diff fails:
+            # fetch the raw diff via the GitHub API with the diff media type.
+            return self._run([
+                "api", f"repos/{repo_full_name}/pulls/{pr_number}",
+                "--header", "Accept: application/vnd.github.diff",
+            ])
 
     def get_comments(self, repo_full_name: str, pr_number: int) -> dict:
         raw = self._run([
