@@ -124,6 +124,21 @@ def get_config():
     return {"ai_provider": "opencode"}
 
 
+@app.get("/api/models")
+def list_models():
+    """Return all models available in the current opencode installation."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["opencode", "models"],
+            capture_output=True, text=True, timeout=10,
+        )
+        models = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        return {"models": models}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- PR endpoints ---
 
 @app.get("/api/prs/{owner}/{repo}")

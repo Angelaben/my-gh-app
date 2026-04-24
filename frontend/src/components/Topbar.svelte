@@ -4,21 +4,27 @@
   import { activePR, activeTab } from '../stores/prs';
   import { aiProvider, selectedModel } from '../stores/ui';
 
-  const OPENCODE_MODELS = [
-    { value: 'anthropic/claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'anthropic/claude-opus-4-5',   label: 'Opus 4.5' },
-    { value: 'anthropic/claude-haiku-3-5',  label: 'Haiku 3.5' },
-  ];
+  let availableModels = $state<string[]>([]);
 
   onMount(async () => {
     try {
-      const res = await fetch('/api/config');
-      if (res.ok) {
-        const data = await res.json();
+      const [configRes, modelsRes] = await Promise.all([
+        fetch('/api/config'),
+        fetch('/api/models'),
+      ]);
+      if (configRes.ok) {
+        const data = await configRes.json();
         aiProvider.set(data.ai_provider ?? '');
       }
+      if (modelsRes.ok) {
+        const data = await modelsRes.json();
+        availableModels = data.models ?? [];
+        if (availableModels.length > 0 && !availableModels.includes($selectedModel)) {
+          selectedModel.set(availableModels[0]);
+        }
+      }
     } catch {
-      // silently ignore — provider stays ''
+      // silently ignore
     }
   });
 
@@ -55,8 +61,8 @@
         value={$selectedModel}
         onchange={(e) => selectedModel.set((e.target as HTMLSelectElement).value)}
       >
-        {#each OPENCODE_MODELS as m}
-          <option value={m.value}>{m.label}</option>
+        {#each availableModels as m}
+          <option value={m}>{m}</option>
         {/each}
       </select>
     </div>
