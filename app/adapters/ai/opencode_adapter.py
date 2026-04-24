@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncGenerator
 
 from app.adapters._subprocess import clean_env
@@ -79,10 +80,13 @@ def _parse_review_output(output: str) -> Review:
                 )
                 for f in data.get("findings", [])
             ]
-            return Review(summary=data.get("summary", ""), findings=findings)
-    except (json.JSONDecodeError, ValueError):
-        pass
+            review = Review(summary=data.get("summary", ""), findings=findings)
+            logger.info("opencode | parsed review | findings=%d", len(findings))
+            return review
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("opencode | parse failed | output_chars=%d error=%s", len(output), exc)
 
+    logger.warning("opencode | returning fallback review | output_chars=%d", len(output))
     return Review(
         summary="Review completed but output could not be parsed as structured JSON.",
         findings=[],
@@ -91,20 +95,32 @@ def _parse_review_output(output: str) -> Review:
     )
 
 
+_STDERR_NOISE = ["[STALE]", "fatal: options '--name-only'", "cannot be used together"]
+# Lines that start with these are opencode progress/model info (log as INFO, not WARNING)
+_STDERR_INFO_PREFIXES = (">", "✓", "✗", "·", "Model:", "Session:")
+
+
 async def _stream_opencode(
     message: str,
     context: str | None = None,
     timeout: int = 300,
     cwd: str | None = None,
+    model: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream raw opencode output line by line."""
     prompt = message
     if context:
         prompt = f"{message}\n\n---\n\n{context}"
 
+    prompt_kb = len(prompt.encode()) / 1024
+    logger.info("opencode | starting | cwd=%s prompt=%.1f KB model=%s", cwd or ".", prompt_kb, model or "default")
+    t_start = time.monotonic()
+
     extra_args: list[str] = []
     if cwd:
         extra_args = ["--dir", cwd]
+    if model:
+        extra_args += ["--model", model]
 
     if len(prompt) > 4000:
         proc = await asyncio.create_subprocess_exec(
@@ -135,34 +151,48 @@ async def _stream_opencode(
             if not line:
                 break
             decoded = line.decode().rstrip()
-            logger.warning("[opencode stderr] %s", decoded)
+            if not decoded:
+                continue  # skip blank lines
+            if any(noise in decoded for noise in _STDERR_NOISE):
+                continue  # suppress known noise silently
+            if decoded.lstrip().startswith(_STDERR_INFO_PREFIXES):
+                logger.info("opencode | %s", decoded)
+            else:
+                logger.warning("opencode | stderr | %s", decoded)
             lines.append(decoded)
         return lines
 
     stderr_task = asyncio.create_task(_read_stderr())
+    output_lines = 0
 
     while True:
         try:
             line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
+            elapsed = time.monotonic() - t_start
+            logger.error("opencode | TIMEOUT after %.1fs | killing process", elapsed)
             yield "\n[TIMEOUT]\n"
             break
         if not line:
             break
         decoded = line.decode()
-        logger.info("[opencode] %s", decoded.rstrip())
+        output_lines += 1
+        logger.debug("opencode | stdout | %s", decoded.rstrip())
         yield decoded
 
     await proc.wait()
-    logger.info("opencode exit code: %s", proc.returncode)
+    elapsed = time.monotonic() - t_start
+    rc = proc.returncode
+    if rc == 0:
+        logger.info("opencode | done | exit=%s lines=%d elapsed=%.1fs", rc, output_lines, elapsed)
+    else:
+        logger.warning("opencode | done | exit=%s lines=%d elapsed=%.1fs", rc, output_lines, elapsed)
 
-    noise = ["[STALE]", "fatal: options '--name-only'", "cannot be used together"]
     stderr_lines = await stderr_task
-    filtered = [ln for ln in stderr_lines if not any(p in ln for p in noise)]
-    if filtered:
+    if stderr_lines:
         yield "\n--- stderr ---\n"
-        for err_line in filtered:
+        for err_line in stderr_lines:
             yield err_line + "\n"
 
 
@@ -170,18 +200,21 @@ class OpenCodeAdapter(AIProvider):
     """Implements AIProvider using the opencode CLI tool."""
 
     async def stream_review(
-        self, repo_full_name: str, pr_number: int, diff: str
+        self, repo_full_name: str, pr_number: int, diff: str, model: str | None = None
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        diff_kb = len(diff.encode()) / 1024
+        logger.info("review | start | repo=%s pr=#%d diff=%.1f KB model=%s", repo_full_name, pr_number, diff_kb, model or "default")
         message = _REVIEW_PROMPT_TEMPLATE.format(
             pr_number=pr_number, repo_full_name=repo_full_name
         )
         chunks: list[str] = []
-        async for chunk in _stream_opencode(message, context=diff[:30000]):
+        async for chunk in _stream_opencode(message, context=diff[:30000], model=model):
             chunks.append(chunk)
             yield ReviewChunkEvent(text=chunk)
 
         full_output = "".join(chunks).strip()
         review = _parse_review_output(full_output)
+        logger.info("review | complete | repo=%s pr=#%d findings=%d", repo_full_name, pr_number, len(review.findings))
         yield ReviewResultEvent(review=review)
 
     async def analyze_comments(

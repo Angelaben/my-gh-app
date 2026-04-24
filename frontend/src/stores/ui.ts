@@ -3,6 +3,12 @@ import type { Toast, ToastType } from '../lib/types';
 
 export const toasts = writable<Toast[]>([]);
 
+/** Which AI provider is active (fetched once from /api/config). */
+export const aiProvider = writable<string>('');
+
+/** Selected OpenCode model. Only meaningful when aiProvider === 'opencode'. */
+export const selectedModel = writable<string>('anthropic/claude-sonnet-4-5');
+
 let toastId = 0;
 
 export function showToast(message: string, type: ToastType = 'info'): void {

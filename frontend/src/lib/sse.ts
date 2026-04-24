@@ -9,8 +9,13 @@ export function connectReviewStream(
   prNumber: number,
   onEvent: SSEHandler,
   rerun = false,
+  model?: string,
 ): SSECleanup {
-  const url = `/api/review/${owner}/${repo}/${prNumber}/stream${rerun ? '?rerun=true' : ''}`;
+  const params = new URLSearchParams();
+  if (rerun) params.set('rerun', 'true');
+  if (model) params.set('model', model);
+  const qs = params.toString();
+  const url = `/api/review/${owner}/${repo}/${prNumber}/stream${qs ? `?${qs}` : ''}`;
   const source = new EventSource(url);
 
   let completed = false;

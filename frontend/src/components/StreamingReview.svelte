@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { connectReviewStream } from '../lib/sse';
   import { cachedReview } from '../stores/prs';
-  import { showToast } from '../stores/ui';
+  import { showToast, selectedModel } from '../stores/ui';
   import type { Finding, Repo, PR, SSEReviewEvent } from '../lib/types';
   import FindingCard from './FindingCard.svelte';
 
@@ -14,10 +14,24 @@
   let findings = $state<Finding[]>([]);
   let chunkLog = $state('');
   let errorMsg = $state('');
+  let lastStep = $state('');   // last meaningful opencode output line shown live
   let cleanup: (() => void) | null = null;
 
+  /** Extract a human-readable step from a raw opencode output line. */
+  function extractStep(text: string): string | null {
+    const line = text.trim();
+    if (!line || line.startsWith('{') || line.startsWith('[')) return null;  // skip JSON
+    // Opencode step lines: "> build · claude-sonnet-4.6", "✓ read file", etc.
+    if (/^[>✓✗·]/.test(line)) return line;
+    // Tool calls: "Reading file app/main.py", "Searching for ..."
+    if (/^(Reading|Writing|Searching|Running|Executing|Editing|Analyzing)\b/i.test(line)) return line;
+    // Substantial prose lines (AI thinking/output)
+    if (line.length > 20 && line.length < 120 && !/^\s*[{}[\]",]/.test(line)) return line;
+    return null;
+  }
+
   onMount(() => {
-    cleanup = connectReviewStream(repo.owner, repo.name, pr.number, handleEvent, rerun);
+    cleanup = connectReviewStream(repo.owner, repo.name, pr.number, handleEvent, rerun, $selectedModel || undefined);
   });
 
   onDestroy(() => cleanup?.());
@@ -26,6 +40,11 @@
     if (event.type === 'chunk') {
       status = 'streaming';
       chunkLog += event.text;
+      // Update live step from any meaningful line in this chunk
+      for (const line of event.text.split('\n')) {
+        const step = extractStep(line);
+        if (step) lastStep = step;
+      }
     } else if (event.type === 'result') {
       findings = event.review.findings;
       cachedReview.set(event.review);
@@ -41,10 +60,10 @@
   }
 
   const statusLabel: Record<Status, string> = {
-    connecting: 'Connecting…',
-    streaming: 'Analyzing…',
+    connecting: 'Connecting to OpenCode…',
+    streaming: 'Analyzing diff…',
     done: 'Review complete',
-    error: 'Error',
+    error: 'Review failed',
   };
 
   const priorities = ['P0', 'P1', 'P2', 'P3'] as const;
@@ -60,7 +79,14 @@
       {:else}
         <span class="status-icon error-icon">✕</span>
       {/if}
-      <span class="status-label">{statusLabel[status]}</span>
+      <div class="status-text">
+        <span class="status-label">{statusLabel[status]}</span>
+        {#if status === 'streaming' && lastStep}
+          <span class="status-step" title={lastStep}>{lastStep}</span>
+        {:else if status === 'connecting'}
+          <span class="status-step">Waiting for response…</span>
+        {/if}
+      </div>
     </div>
     <div class="header-right">
       {#if findings.length > 0}
@@ -125,7 +151,12 @@
   .header-left { display: flex; align-items: center; gap: 8px; }
   .header-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
+  .status-text { display: flex; flex-direction: column; gap: 2px; }
   .status-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+  .status-step {
+    font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);
+    max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .status-icon { font-size: 12px; font-weight: 700; }
   .done-icon { color: var(--success); }
   .error-icon { color: var(--p0); }

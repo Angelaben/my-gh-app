@@ -38,7 +38,7 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def stream_review(
-        self, repo_full_name: str, pr_number: int, diff: str
+        self, repo_full_name: str, pr_number: int, diff: str, model: str | None = None
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         """Stream review output. Must yield ReviewChunkEvent(s) then a final ReviewResultEvent."""
         yield

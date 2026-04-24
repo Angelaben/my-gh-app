@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -109,7 +109,16 @@ def search_repos(org: str, q: str = ""):
     try:
         return _vcs.search_repos(org, q)
     except Exception as e:
+        logger.exception("search_repos failed | org=%s q=%s", org, q)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Config endpoint ---
+
+@app.get("/api/config")
+def get_config():
+    """Return static runtime configuration consumed by the frontend."""
+    return {"ai_provider": "opencode"}
 
 
 # --- PR endpoints ---
@@ -122,6 +131,7 @@ def list_prs(owner: str, repo: str):
 @app.post("/api/prs/{owner}/{repo}/refresh")
 def refresh_prs(owner: str, repo: str):
     full_name = f"{owner}/{repo}"
+    logger.info("refresh_prs | start | repo=%s", full_name)
     try:
         prs = _vcs.list_prs(full_name)
         prs_dicts = [
@@ -139,8 +149,10 @@ def refresh_prs(owner: str, repo: str):
             for pr in prs
         ]
         _cache.save_prs(full_name, prs_dicts)
+        logger.info("refresh_prs | done | repo=%s prs=%d", full_name, len(prs_dicts))
         return prs_dicts
     except Exception as e:
+        logger.exception("refresh_prs | failed | repo=%s", full_name)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -151,6 +163,7 @@ def get_pr_detail(owner: str, repo: str, pr_number: int):
     try:
         return _comment_service.get_comments(f"{owner}/{repo}", pr_number)
     except Exception as e:
+        logger.exception("get_pr_detail | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -190,6 +203,7 @@ async def run_review(
         review = await svc.get_or_run_review(f"{owner}/{repo}", pr_number)
         return _serialize_review(review)
     except Exception as e:
+        logger.exception("run_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -204,6 +218,7 @@ async def rerun_review(
         review = await svc.rerun_review(f"{owner}/{repo}", pr_number)
         return _serialize_review(review)
     except Exception as e:
+        logger.exception("rerun_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -212,12 +227,13 @@ async def stream_review(
     owner: str,
     repo: str,
     pr_number: int,
+    model: str | None = Query(default=None, description="OpenCode model override, e.g. anthropic/claude-opus-4-5"),
     svc: ReviewService = Depends(get_review_service),
 ):
     """SSE endpoint that streams AI output in real-time, then emits the parsed result."""
     async def event_stream():
         try:
-            async for event in svc.stream_review(f"{owner}/{repo}", pr_number):
+            async for event in svc.stream_review(f"{owner}/{repo}", pr_number, model=model):
                 if isinstance(event, ReviewChunkEvent):
                     for line in event.text.splitlines(keepends=True):
                         yield f"data: {json.dumps({'type': 'chunk', 'text': line})}\n\n"
@@ -225,6 +241,7 @@ async def stream_review(
                     yield f"data: {json.dumps({'type': 'result', 'review': _serialize_review(event.review)})}\n\n"
             yield 'data: {"type": "done"}\n\n'
         except Exception as e:
+            logger.exception("stream_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
             yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
             yield 'data: {"type": "done"}\n\n'
 
@@ -243,6 +260,7 @@ def publish_comment(data: PublishComment, svc: CommentService = Depends(get_comm
         svc.post_comment(data.repo, data.pr_number, data.body)
         return {"status": "published"}
     except Exception as e:
+        logger.exception("publish_comment | failed | repo=%s pr=#%d", data.repo, data.pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -254,6 +272,7 @@ def publish_inline_comment(
         svc.post_inline_comment(data.repo, data.pr_number, data.body, data.path, data.line)
         return {"status": "published"}
     except Exception as e:
+        logger.exception("publish_inline_comment | failed | repo=%s pr=#%d", data.repo, data.pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -267,6 +286,7 @@ async def analyze_comments(
     try:
         return await svc.analyze_comments(f"{owner}/{repo}", pr_number)
     except Exception as e:
+        logger.exception("analyze_comments | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -296,6 +316,7 @@ async def push_fix(data: PushFix, svc: FixService = Depends(get_fix_service)):
     except WorktreeNoChangesError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("push_fix | failed | repo=%s pr=#%d", data.repo, data.pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -310,6 +331,7 @@ async def submit_new_pr(data: PushFix, svc: FixService = Depends(get_fix_service
     except WorktreeNoChangesError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("submit_new_pr | failed | repo=%s pr=#%d", data.repo, data.pr_number)
         raise HTTPException(status_code=500, detail=str(e))
 
 

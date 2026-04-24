@@ -25,11 +25,11 @@ class ReviewService:
         return await self._run_review(repo_full_name, pr_number)
 
     async def stream_review(
-        self, repo_full_name: str, pr_number: int
+        self, repo_full_name: str, pr_number: int, model: str | None = None
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         """Stream review events. Saves the Review to cache when the result event arrives."""
         diff = self._vcs.get_diff(repo_full_name, pr_number)
-        async for event in self._ai.stream_review(repo_full_name, pr_number, diff):
+        async for event in self._ai.stream_review(repo_full_name, pr_number, diff, model=model):
             if isinstance(event, ReviewResultEvent):
                 self._cache.save_review(repo_full_name, pr_number, event.review)
             yield event
