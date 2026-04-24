@@ -30,9 +30,11 @@ export async function loadComments(owner: string, repo: string, prNumber: number
   comments.set(raw.map((c, i) => normalizeComment(c, i)));
 }
 
-export async function analyzeComments(owner: string, repo: string, prNumber: number): Promise<void> {
+export async function analyzeComments(owner: string, repo: string, prNumber: number, signal?: AbortSignal): Promise<void> {
   const data = await api.post<{ comments: RawComment[]; analysis: RawAnalysis[] }>(
-    `/comments/${owner}/${repo}/${prNumber}/analyze`
+    `/comments/${owner}/${repo}/${prNumber}/analyze`,
+    undefined,
+    signal,
   );
   const authorStr = (author: string | { login: string }) => typeof author === 'string' ? author : author.login;
   const analysisMap = new Map(data.analysis.map((a) => [a.author, a]));

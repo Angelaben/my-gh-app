@@ -10,6 +10,7 @@
 
   let loading = $state(true);
   let analyzing = $state(false);
+  let analyzeController = $state<AbortController | null>(null);
   let filterAuthor = $state('');
   let filterPriority = $state('');
 
@@ -24,20 +25,25 @@
   });
 
   async function handleAnalyze() {
-    const ctrl = get(activeFixController);
-    if (ctrl) {
-      ctrl.abort();
-      activeFixController.set(null);
-    }
+    const fixCtrl = get(activeFixController);
+    if (fixCtrl) { fixCtrl.abort(); activeFixController.set(null); }
+
+    const ctrl = new AbortController();
+    analyzeController = ctrl;
     analyzing = true;
     try {
-      await analyzeComments(repo.owner, repo.name, pr.number);
+      await analyzeComments(repo.owner, repo.name, pr.number, ctrl.signal);
       showToast('Analysis complete', 'success');
-    } catch {
-      showToast('Analysis failed', 'error');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') showToast('Analysis failed', 'error');
     } finally {
       analyzing = false;
+      analyzeController = null;
     }
+  }
+
+  function stopAnalyze() {
+    analyzeController?.abort();
   }
 
   const authors = $derived([...new Set($comments.map((c) => c.author))]);
@@ -54,9 +60,12 @@
 
 <div class="comments-tab">
   <div class="toolbar">
-    <button class="btn btn-accent" onclick={handleAnalyze} disabled={analyzing}>
-      {analyzing ? '…' : '⚙ Analyze Comments'}
-    </button>
+    {#if analyzing}
+      <button class="btn btn-danger btn-sm" onclick={stopAnalyze}>⏹ Stop</button>
+      <span class="analyzing-label">Analyzing…</span>
+    {:else}
+      <button class="btn btn-accent" onclick={handleAnalyze}>⚙ Analyze Comments</button>
+    {/if}
     <select class="filter-select" bind:value={filterAuthor}>
       <option value="">All authors</option>
       {#each authors as author}
@@ -112,6 +121,7 @@
   .filter-select:disabled { opacity: 0.4; cursor: default; }
 
   .count { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+  .analyzing-label { font-size: 11px; color: var(--text-muted); font-style: italic; }
 
   .loading-state {
     display: flex; align-items: center; gap: 10px; padding: 40px 0; justify-content: center;

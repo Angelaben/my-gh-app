@@ -89,6 +89,9 @@
       </div>
     </div>
     <div class="header-right">
+      {#if status === 'connecting' || status === 'streaming'}
+        <button class="btn btn-danger btn-sm" onclick={() => { cleanup?.(); status = 'done'; }}>⏹ Stop</button>
+      {/if}
       {#if findings.length > 0}
         <span class="finding-count">{findings.length} finding{findings.length !== 1 ? 's' : ''}</span>
         {#each priorities as p}
