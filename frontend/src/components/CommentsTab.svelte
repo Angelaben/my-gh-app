@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { comments, loadComments, analyzeComments } from '../stores/prs';
-  import { showToast } from '../stores/ui';
+  import { showToast, activeFixController } from '../stores/ui';
+  import { get } from 'svelte/store';
   import type { Repo, PR } from '../lib/types';
   import CommentCard from './CommentCard.svelte';
 
@@ -15,8 +16,6 @@
   onMount(async () => {
     try {
       await loadComments(repo.owner, repo.name, pr.number);
-      // Auto-analyze comments on load
-      await analyzeComments(repo.owner, repo.name, pr.number);
     } catch {
       showToast('Failed to load comments', 'error');
     } finally {
@@ -25,6 +24,11 @@
   });
 
   async function handleAnalyze() {
+    const ctrl = get(activeFixController);
+    if (ctrl) {
+      ctrl.abort();
+      activeFixController.set(null);
+    }
     analyzing = true;
     try {
       await analyzeComments(repo.owner, repo.name, pr.number);
@@ -50,7 +54,7 @@
 
 <div class="comments-tab">
   <div class="toolbar">
-    <button class="btn btn-accent" onclick={handleAnalyze} disabled={analyzing || loading}>
+    <button class="btn btn-accent" onclick={handleAnalyze} disabled={analyzing}>
       {analyzing ? '…' : '⚙ Analyze Comments'}
     </button>
     <select class="filter-select" bind:value={filterAuthor}>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Comment, Repo, PR } from '../lib/types';
   import { api } from '../lib/api';
-  import { showToast } from '../stores/ui';
+  import { showToast, activeFixController } from '../stores/ui';
   import { deleteComment, comments } from '../stores/prs';
 
   let { comment, repo, pr }: { comment: Comment; repo: Repo; pr: PR } = $props();
@@ -22,15 +22,22 @@
     fixResult = null;
     fixError = '';
 
+    const ctrl = new AbortController();
+    activeFixController.set(ctrl);
+
     const res = await fetch('/api/comment/fix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo: repo.full_name, pr_number: pr.number, comment_body: comment.body }),
+      signal: ctrl.signal,
+    }).catch((err) => {
+      if (err.name === 'AbortError') { fixStatus = 'idle'; activeFixController.set(null); }
+      return null;
     });
 
-    if (!res.ok || !res.body) {
-      fixStatus = 'error';
-      fixError = 'Request failed';
+    if (!res || !res.ok || !res.body) {
+      if (fixStatus !== 'idle') { fixStatus = 'error'; fixError = 'Request failed'; }
+      activeFixController.set(null);
       return;
     }
 
@@ -63,6 +70,7 @@
     }
 
     if (fixStatus === 'running') fixStatus = 'done';
+    activeFixController.set(null);
   }
 
   async function pushFix() {

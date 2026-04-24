@@ -9,6 +9,9 @@ export const aiProvider = writable<string>('');
 /** Selected OpenCode model. Only meaningful when aiProvider === 'opencode'. */
 export const selectedModel = writable<string>('anthropic/claude-sonnet-4-5');
 
+/** AbortController for the currently running fix stream. Null when no fix is running. */
+export const activeFixController = writable<AbortController | null>(null);
+
 let toastId = 0;
 
 export function showToast(message: string, type: ToastType = 'info'): void {
