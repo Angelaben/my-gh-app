@@ -177,3 +177,10 @@ class GitHubCLIAdapter(VCSPort):
     def get_authenticated_user(self) -> str:
         raw = self._run(["api", "user", "--jq", ".login"])
         return raw.strip()
+
+    def delete_comment(self, repo_full_name: str, comment_id: int, comment_type: str) -> None:
+        if comment_type == "review_comment":
+            path = f"repos/{repo_full_name}/pulls/comments/{comment_id}"
+        else:
+            path = f"repos/{repo_full_name}/issues/comments/{comment_id}"
+        self._run(["api", path, "--method", "DELETE"])

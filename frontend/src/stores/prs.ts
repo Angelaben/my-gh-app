@@ -87,11 +87,13 @@ export async function publishFinding(
 // ── Internal types for raw API responses ──
 
 interface RawComment {
+  id: number;
   author: string | { login: string };
   body: string;
   path?: string;
   line?: number;
   created_at: string;
+  comment_type?: string;
 }
 
 interface RawAnalysis {
@@ -112,11 +114,20 @@ interface RawPRDetail {
 function normalizeComment(c: RawComment, index: number): Comment {
   const authorStr = typeof c.author === 'string' ? c.author : c.author.login;
   return {
-    id: index,
+    id: c.id ?? index,
     author: authorStr,
     body: c.body,
     file: c.path,
     line: c.line,
     created_at: c.created_at,
+    comment_type: c.comment_type ?? 'pr_comment',
   };
+}
+
+export async function deleteComment(
+  repo: string,
+  commentId: number,
+  commentType: string
+): Promise<void> {
+  await api.delete('/comment', { repo, comment_id: commentId, comment_type: commentType });
 }

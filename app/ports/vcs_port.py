@@ -66,3 +66,8 @@ class VCSPort(ABC):
     def get_authenticated_user(self) -> str:
         """Return the GitHub login of the currently authenticated user."""
         ...
+
+    @abstractmethod
+    def delete_comment(self, repo_full_name: str, comment_id: int, comment_type: str) -> None:
+        """Delete a comment by ID. comment_type: 'pr_comment' | 'review_comment'."""
+        ...

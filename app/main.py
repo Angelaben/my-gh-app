@@ -67,6 +67,12 @@ class PublishComment(BaseModel):
     body: str
 
 
+class DeleteComment(BaseModel):
+    repo: str
+    comment_id: int
+    comment_type: str  # 'pr_comment' | 'review_comment'
+
+
 class PublishInlineComment(BaseModel):
     repo: str
     pr_number: int
@@ -309,6 +315,16 @@ def publish_inline_comment(
         return {"status": "published"}
     except Exception as e:
         logger.exception("publish_inline_comment | failed | repo=%s pr=#%d", data.repo, data.pr_number)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/comment")
+def delete_comment(data: DeleteComment):
+    try:
+        _vcs.delete_comment(data.repo, data.comment_id, data.comment_type)
+        return {"status": "deleted"}
+    except Exception as e:
+        logger.exception("delete_comment | failed | repo=%s id=%d", data.repo, data.comment_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 

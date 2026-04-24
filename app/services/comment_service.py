@@ -103,6 +103,7 @@ def _dict_to_comment(d: dict) -> Comment:
         line=d.get("line"),
         created_at=d.get("created_at"),
         in_reply_to_id=d.get("in_reply_to_id"),
+        comment_type=d.get("comment_type", "pr_comment"),
     )
 
 
@@ -137,12 +138,14 @@ class CommentService:
                     "author": _normalize_author(review.get("author", "")),
                     "id": review_id,
                     "in_reply_to_id": None,
+                    "comment_type": "pr_comment",
                 })
 
         for rc in data.get("review_comments", []):
             result.append(rc | {
                 "author": _normalize_author(rc.get("author", "")),
                 "in_reply_to_id": rc.get("in_reply_to_id"),
+                "comment_type": "review_comment",
             })
 
         return result

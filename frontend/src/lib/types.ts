@@ -45,6 +45,7 @@ export interface Comment {
   file?: string;
   line?: number;
   created_at: string;
+  comment_type: string;
   analysis?: CommentAnalysis;
 }
 

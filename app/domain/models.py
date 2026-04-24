@@ -56,6 +56,7 @@ class Comment:
     is_ours: bool = False                # author == authenticated GitHub login
     is_new_reply: bool = False           # reply to our comment, created after last visit
     has_new_replies: bool = False        # set on root comment when thread has new replies
+    comment_type: str = 'pr_comment'    # 'pr_comment' | 'review_comment' — determines delete API path
 
 
 @dataclass
