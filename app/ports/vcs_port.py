@@ -61,3 +61,8 @@ class VCSPort(ABC):
     ) -> dict:
         """Create a PR and return {'url': str}."""
         ...
+
+    @abstractmethod
+    def get_authenticated_user(self) -> str:
+        """Return the GitHub login of the currently authenticated user."""
+        ...

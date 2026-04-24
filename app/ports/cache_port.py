@@ -1,5 +1,6 @@
 """Cache port — persisting repos, PRs, and reviews."""
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from app.domain.models import Review
 
@@ -45,4 +46,24 @@ class CachePort(ABC):
     @abstractmethod
     def clear_review(self, repo_full_name: str, pr_number: int) -> None:
         """Remove cached review for a PR."""
+        ...
+
+    @abstractmethod
+    def get_last_visited(self, repo_full_name: str, pr_number: int) -> datetime | None:
+        """Return the datetime the PR was last loaded, or None if never visited."""
+        ...
+
+    @abstractmethod
+    def set_last_visited(self, repo_full_name: str, pr_number: int, dt: datetime) -> None:
+        """Persist the datetime the PR was loaded."""
+        ...
+
+    @abstractmethod
+    def get_github_login(self) -> str | None:
+        """Return the cached authenticated GitHub login, or None."""
+        ...
+
+    @abstractmethod
+    def set_github_login(self, login: str) -> None:
+        """Persist the authenticated GitHub login."""
         ...

@@ -76,11 +76,13 @@ class GitHubCLIAdapter(VCSPort):
             inline_comments = json.loads(inline_raw) if inline_raw else []
             data["review_comments"] = [
                 {
+                    "id": c.get("id"),
                     "author": {"login": c.get("user", {}).get("login", "unknown")},
                     "body": c.get("body", ""),
                     "path": c.get("path", ""),
                     "line": c.get("line"),
                     "created_at": c.get("created_at", ""),
+                    "in_reply_to_id": c.get("in_reply_to_id"),
                 }
                 for c in inline_comments
             ]
@@ -163,3 +165,7 @@ class GitHubCLIAdapter(VCSPort):
             "--json", "url",
         ], timeout=30)
         return json.loads(raw)
+
+    def get_authenticated_user(self) -> str:
+        raw = self._run(["api", "user", "--jq", ".login"])
+        return raw.strip()

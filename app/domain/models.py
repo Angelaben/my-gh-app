@@ -51,6 +51,11 @@ class Comment:
     file: str | None = None
     line: int | None = None
     created_at: str | None = None
+    in_reply_to_id: int | None = None   # GitHub threading — inline review comments only
+    thread_id: int | None = None         # root comment ID of this thread (computed)
+    is_ours: bool = False                # author == authenticated GitHub login
+    is_new_reply: bool = False           # reply to our comment, created after last visit
+    has_new_replies: bool = False        # set on root comment when thread has new replies
 
 
 @dataclass

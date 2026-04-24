@@ -2,6 +2,8 @@
 
 import json
 import logging
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -77,6 +79,7 @@ class ImplementFix(BaseModel):
     repo: str
     pr_number: int
     comment_body: str
+    thread: list[dict] | None = None  # [{"author": str, "body": str}, ...]
 
 
 class PushFix(BaseModel):
@@ -161,7 +164,25 @@ def refresh_prs(owner: str, repo: str):
 @app.get("/api/pr/{owner}/{repo}/{pr_number}")
 def get_pr_detail(owner: str, repo: str, pr_number: int):
     try:
-        return _comment_service.get_comments(f"{owner}/{repo}", pr_number)
+        repo_full_name = f"{owner}/{repo}"
+
+        our_login = _cache.get_github_login()
+        if our_login is None:
+            our_login = _vcs.get_authenticated_user()
+            _cache.set_github_login(our_login)
+
+        last_visited_at = _cache.get_last_visited(repo_full_name, pr_number)
+
+        enriched, new_comment_ids = _comment_service.get_enriched_comments(
+            repo_full_name, pr_number, our_login, last_visited_at
+        )
+
+        _cache.set_last_visited(repo_full_name, pr_number, datetime.now(timezone.utc))
+
+        return {
+            "comments": [asdict(c) for c in enriched],
+            "new_comment_ids": new_comment_ids,
+        }
     except Exception as e:
         logger.exception("get_pr_detail | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))

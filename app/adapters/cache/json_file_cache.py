@@ -1,5 +1,6 @@
 """JSON-on-disk implementation of CachePort."""
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.domain.exceptions import CacheError
@@ -20,11 +21,13 @@ class JsonFileCache(CachePort):
         self._dir = cache_dir
         self._prs_dir = self._dir / "prs"
         self._reviews_dir = self._dir / "reviews"
+        self._visits_dir = self._dir / "visits"
 
     def _ensure_dirs(self) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._prs_dir.mkdir(parents=True, exist_ok=True)
         self._reviews_dir.mkdir(parents=True, exist_ok=True)
+        self._visits_dir.mkdir(parents=True, exist_ok=True)
 
     def _read_json(self, path: Path) -> dict | list | None:
         if not path.exists():
@@ -120,3 +123,26 @@ class JsonFileCache(CachePort):
         path = self._review_path(repo_full_name, pr_number)
         if path.exists():
             path.unlink()
+
+    # --- Last Visited & GitHub Login ---
+
+    def get_last_visited(self, repo_full_name: str, pr_number: int) -> datetime | None:
+        path = self._visits_dir / f"{_slug(repo_full_name)}_{pr_number}.json"
+        data = self._read_json(path)
+        if data is None or "last_visited_at" not in data:
+            return None
+        try:
+            return datetime.fromisoformat(data["last_visited_at"])
+        except ValueError:
+            return None
+
+    def set_last_visited(self, repo_full_name: str, pr_number: int, dt: datetime) -> None:
+        path = self._visits_dir / f"{_slug(repo_full_name)}_{pr_number}.json"
+        self._write_json(path, {"last_visited_at": dt.isoformat()})
+
+    def get_github_login(self) -> str | None:
+        data = self._read_json(self._dir / "github_login.json")
+        return data.get("login") if data else None
+
+    def set_github_login(self, login: str) -> None:
+        self._write_json(self._dir / "github_login.json", {"login": login})
