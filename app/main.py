@@ -16,7 +16,7 @@ from app.adapters.cache.json_file_cache import JsonFileCache
 from app.adapters.vcs.github_cli_adapter import GitHubCLIAdapter
 from app.adapters.worktree.git_worktree_adapter import GitWorktreeAdapter
 from app.domain.exceptions import WorktreeNoChangesError, WorktreeNotFoundError
-from app.ports.ai_provider import ReviewChunkEvent, ReviewResultEvent
+from app.ports.ai_provider import ReviewChunkEvent, ReviewResultEvent, ReviewWarningEvent
 from app.services.comment_service import CommentService
 from app.services.fix_service import FixService
 from app.services.review_service import ReviewService
@@ -279,6 +279,8 @@ async def stream_review(
                 if isinstance(event, ReviewChunkEvent):
                     for line in event.text.splitlines(keepends=True):
                         yield f"data: {json.dumps({'type': 'chunk', 'text': line})}\n\n"
+                elif isinstance(event, ReviewWarningEvent):
+                    yield f"data: {json.dumps({'type': 'warning', 'lines': event.lines})}\n\n"
                 elif isinstance(event, ReviewResultEvent):
                     yield f"data: {json.dumps({'type': 'result', 'review': _serialize_review(event.review)})}\n\n"
             yield 'data: {"type": "done"}\n\n'

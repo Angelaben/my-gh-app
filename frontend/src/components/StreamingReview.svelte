@@ -14,7 +14,9 @@
   let findings = $state<Finding[]>([]);
   let chunkLog = $state('');
   let errorMsg = $state('');
-  let lastStep = $state('');   // last meaningful opencode output line shown live
+  let lastStep = $state('');
+  let warnings = $state<string[]>([]);
+  let showWarnings = $state(false);
   let cleanup: (() => void) | null = null;
 
   /** Extract a human-readable step from a raw opencode output line. */
@@ -50,6 +52,8 @@
       cachedReview.set(event.review);
       status = 'done';
       oncomplete?.();
+    } else if (event.type === 'warning') {
+      warnings = [...warnings, ...event.lines];
     } else if (event.type === 'done') {
       if (status !== 'done') { status = 'done'; oncomplete?.(); }
     } else if (event.type === 'error') {
@@ -91,6 +95,24 @@
     <div class="header-right">
       {#if status === 'connecting' || status === 'streaming'}
         <button class="btn btn-danger btn-sm" onclick={() => { cleanup?.(); status = 'done'; }}>⏹ Stop</button>
+      {/if}
+      {#if warnings.length > 0}
+        <div class="warning-wrap">
+          <button
+            class="warn-btn"
+            onclick={() => showWarnings = !showWarnings}
+            title="OpenCode reported warnings — click to view"
+          >⚠ {warnings.length}</button>
+          {#if showWarnings}
+            <div class="warn-panel">
+              <div class="warn-panel-header">
+                <span>OpenCode warnings</span>
+                <button class="warn-close" onclick={() => showWarnings = false}>✕</button>
+              </div>
+              <pre class="warn-body">{warnings.join('\n')}</pre>
+            </div>
+          {/if}
+        </div>
       {/if}
       {#if findings.length > 0}
         <span class="finding-count">{findings.length} finding{findings.length !== 1 ? 's' : ''}</span>
@@ -197,6 +219,42 @@
     padding: 12px 14px; color: var(--p0); font-size: 12px;
     background: rgba(255,59,59,0.06); border: 1px solid rgba(255,59,59,0.2);
     border-top: none; border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
+
+  .warning-wrap { position: relative; }
+  .warn-btn {
+    background: rgba(255, 200, 0, 0.12);
+    border: 1px solid rgba(255, 200, 0, 0.4);
+    border-radius: var(--radius-sm);
+    color: #ffc800;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+  }
+  .warn-btn:hover { background: rgba(255, 200, 0, 0.2); border-color: rgba(255, 200, 0, 0.7); }
+  .warn-panel {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    width: 480px; max-height: 280px;
+    background: var(--glass-bg); border: 1px solid rgba(255, 200, 0, 0.35);
+    border-radius: var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; z-index: 100;
+  }
+  .warn-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid rgba(255,200,0,0.2);
+    font-size: 11px; font-weight: 600; color: #ffc800;
+  }
+  .warn-close {
+    background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 0 2px;
+  }
+  .warn-close:hover { color: var(--text-primary); }
+  .warn-body {
+    flex: 1; overflow-y: auto; margin: 0; padding: 10px 12px;
+    font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);
+    white-space: pre-wrap; word-break: break-all; line-height: 1.6;
   }
 
   .raw-log { margin-top: 10px; }

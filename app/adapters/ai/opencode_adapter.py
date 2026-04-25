@@ -14,6 +14,7 @@ from app.ports.ai_provider import (
     FixChunkEvent,
     ReviewChunkEvent,
     ReviewResultEvent,
+    ReviewWarningEvent,
     ReviewStreamEvent,
 )
 
@@ -190,10 +191,15 @@ async def _stream_opencode(
         logger.warning("opencode | done | exit=%s lines=%d elapsed=%.1fs", rc, output_lines, elapsed)
 
     stderr_lines = await stderr_task
-    if stderr_lines:
-        yield "\n--- stderr ---\n"
-        for err_line in stderr_lines:
-            yield err_line + "\n"
+
+    # Surface stderr as tagged lines so callers can emit structured warning events.
+    # Silent failure (no stdout + bad exit) gets an extra synthetic line.
+    warning_lines = list(stderr_lines)
+    if output_lines == 0 and rc != 0:
+        warning_lines.insert(0, f"[opencode exited with code {rc} and produced no output]")
+
+    for err_line in warning_lines:
+        yield f"\x00STDERR\x00{err_line}"
 
 
 class OpenCodeAdapter(AIProvider):
@@ -208,9 +214,16 @@ class OpenCodeAdapter(AIProvider):
             pr_number=pr_number, repo_full_name=repo_full_name
         )
         chunks: list[str] = []
+        warning_lines: list[str] = []
         async for chunk in _stream_opencode(message, context=diff[:30000], model=model):
-            chunks.append(chunk)
-            yield ReviewChunkEvent(text=chunk)
+            if chunk.startswith("\x00STDERR\x00"):
+                warning_lines.append(chunk[8:])
+            else:
+                chunks.append(chunk)
+                yield ReviewChunkEvent(text=chunk)
+
+        if warning_lines:
+            yield ReviewWarningEvent(lines=warning_lines)
 
         full_output = "".join(chunks).strip()
         review = _parse_review_output(full_output)

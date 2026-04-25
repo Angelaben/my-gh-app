@@ -165,34 +165,32 @@
 
   <p class="comment-body">{comment.body}</p>
 
-  {#if comment.analysis}
-    <div class="comment-actions">
-      {#if fixStatus === 'idle'}
-        <button class="btn btn-accent btn-sm" onclick={runFix}>⚡ Fix & Submit PR</button>
-      {:else if fixStatus === 'running'}
-        <button class="btn btn-sm" disabled>Implementing fix…</button>
-      {:else if fixStatus === 'done' && fixResult?.has_changes}
-        {#if pushDone}
-          <span class="fix-ok">✓ Pushed to PR branch</span>
-        {:else if newPrUrl}
-          <span class="fix-ok">✓ PR created</span>
-          <a class="pr-link" href={newPrUrl} target="_blank" rel="noreferrer">{newPrUrl}</a>
-        {:else}
-          <button class="btn btn-success btn-sm" onclick={pushFix} disabled={pushing}>
-            {pushing ? '…' : '↑ Push to PR branch'}
-          </button>
-          <button class="btn btn-sm" onclick={newPr} disabled={pushing}>
-            {pushing ? '…' : '+ New PR'}
-          </button>
-        {/if}
-      {:else if fixStatus === 'done'}
-        <span style="color:var(--text-muted);font-size:11px;">No changes made</span>
-      {:else if fixStatus === 'error'}
-        <span class="fix-err">✕ {fixError}</span>
-        <button class="btn btn-sm" onclick={runFix}>Retry</button>
+  <div class="comment-actions">
+    {#if fixStatus === 'idle'}
+      <button class="btn btn-accent btn-sm" onclick={runFix}>⚡ Fix & Submit PR</button>
+    {:else if fixStatus === 'running'}
+      <button class="btn btn-sm" disabled>Implementing fix…</button>
+    {:else if fixStatus === 'done' && fixResult?.has_changes}
+      {#if pushDone}
+        <span class="fix-ok">✓ Pushed to PR branch</span>
+      {:else if newPrUrl}
+        <span class="fix-ok">✓ PR created</span>
+        <a class="pr-link" href={newPrUrl} target="_blank" rel="noreferrer">{newPrUrl}</a>
+      {:else}
+        <button class="btn btn-success btn-sm" onclick={pushFix} disabled={pushing}>
+          {pushing ? '…' : '↑ Push to PR branch'}
+        </button>
+        <button class="btn btn-sm" onclick={newPr} disabled={pushing}>
+          {pushing ? '…' : '+ New PR'}
+        </button>
       {/if}
-    </div>
-  {/if}
+    {:else if fixStatus === 'done'}
+      <span style="color:var(--text-muted);font-size:11px;">No changes made</span>
+    {:else if fixStatus === 'error'}
+      <span class="fix-err">✕ {fixError}</span>
+      <button class="btn btn-sm" onclick={runFix}>Retry</button>
+    {/if}
+  </div>
 
   {#if fixLog}
     <details class="fix-log" open={fixStatus === 'running'}>

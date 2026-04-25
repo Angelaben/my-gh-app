@@ -22,7 +22,15 @@ class ReviewResultEvent:
         self.review = review
 
 
-ReviewStreamEvent: TypeAlias = ReviewChunkEvent | ReviewResultEvent
+class ReviewWarningEvent:
+    """Stderr / diagnostic lines from the AI provider process."""
+    __slots__ = ("lines",)
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+
+
+ReviewStreamEvent: TypeAlias = ReviewChunkEvent | ReviewResultEvent | ReviewWarningEvent
 
 
 class FixChunkEvent:
