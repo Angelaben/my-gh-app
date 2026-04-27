@@ -1,3 +1,5 @@
+<script lang="ts"></script>
+
 <div class="empty">
   <div class="icon">&lt;/&gt;</div>
   <p>Select a repository from the sidebar or add one to get started.</p>

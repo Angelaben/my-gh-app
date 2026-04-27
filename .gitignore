@@ -26,3 +26,12 @@ opencode.json
 # Node
 node_modules/
 dist/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+build/
+*.egg-info/

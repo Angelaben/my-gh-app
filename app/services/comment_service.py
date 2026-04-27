@@ -146,6 +146,7 @@ class CommentService:
                 "author": _normalize_author(rc.get("author", "")),
                 "in_reply_to_id": rc.get("in_reply_to_id"),
                 "comment_type": "review_comment",
+                "_inline": True,
             })
 
         return result

@@ -36,7 +36,7 @@
     });
 
     if (!res || !res.ok || !res.body) {
-      if (fixStatus !== 'idle') { fixStatus = 'error'; fixError = 'Request failed'; }
+      if ((fixStatus as FixStatus) !== 'idle') { fixStatus = 'error'; fixError = 'Request failed'; }
       activeFixController.set(null);
       return;
     }

@@ -79,7 +79,7 @@ class TestStreamReview:
         review = _make_review("streamed")
         events = [ReviewChunkEvent("a"), ReviewChunkEvent("b"), ReviewResultEvent(review)]
 
-        async def mock_stream(repo, pr, diff):
+        async def mock_stream(repo, pr, diff, model=None):
             for e in events:
                 yield e
 
