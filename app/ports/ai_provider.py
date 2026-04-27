@@ -1,4 +1,4 @@
-"""AI provider port — swap opencode / Bedrock / Claude Code behind this interface."""
+"""AI provider port — swap opencode / Claude Code / Bedrock behind this interface."""
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import TypeAlias

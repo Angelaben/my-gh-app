@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,12 +12,13 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.adapters.ai.claude_code_adapter import ClaudeCodeAdapter
 from app.adapters.ai.opencode_adapter import OpenCodeAdapter
 from app.adapters.cache.json_file_cache import JsonFileCache
 from app.adapters.vcs.github_cli_adapter import GitHubCLIAdapter
 from app.adapters.worktree.git_worktree_adapter import GitWorktreeAdapter
 from app.domain.exceptions import WorktreeNoChangesError, WorktreeNotFoundError
-from app.ports.ai_provider import ReviewChunkEvent, ReviewResultEvent, ReviewWarningEvent
+from app.ports.ai_provider import AIProvider, ReviewChunkEvent, ReviewResultEvent, ReviewWarningEvent
 from app.services.comment_service import CommentService
 from app.services.fix_service import FixService
 from app.services.review_service import ReviewService
@@ -28,10 +30,27 @@ app = FastAPI(title="gh-review-tool")
 
 # --- Dependency injection ---
 
+_SUPPORTED_PROVIDERS = ("opencode", "claude-code")
+
+
+def _build_ai_provider(name: str) -> AIProvider:
+    """Instantiate the AI provider adapter selected by name."""
+    if name == "claude-code":
+        return ClaudeCodeAdapter()
+    if name == "opencode":
+        return OpenCodeAdapter()
+    raise ValueError(
+        f"Unknown AI_PROVIDER {name!r}. Supported: {', '.join(_SUPPORTED_PROVIDERS)}"
+    )
+
+
+_ai_provider_name = os.environ.get("AI_PROVIDER", "opencode").strip().lower()
+
 _cache = JsonFileCache()
 _vcs = GitHubCLIAdapter()
-_ai = OpenCodeAdapter()
+_ai = _build_ai_provider(_ai_provider_name)
 _worktree = GitWorktreeAdapter()
+logger.info("AI provider | %s", _ai_provider_name)
 
 _review_service = ReviewService(ai=_ai, cache=_cache, vcs=_vcs)
 _fix_service = FixService(ai=_ai, vcs=_vcs, worktree=_worktree)
@@ -127,17 +146,34 @@ def search_repos(org: str, q: str = ""):
 @app.get("/api/config")
 def get_config():
     """Return static runtime configuration consumed by the frontend."""
-    return {"ai_provider": "opencode"}
+    return {
+        "ai_provider": _ai_provider_name,
+        "supported_providers": list(_SUPPORTED_PROVIDERS),
+    }
 
 
 @app.get("/api/models")
 def list_models():
-    """Return all models available in the current opencode installation."""
+    """Return all models available in the active AI provider's installation."""
     import subprocess
+    if _ai_provider_name == "opencode":
+        cmd = ["opencode", "models"]
+    elif _ai_provider_name == "claude-code":
+        # Claude Code does not expose a `models` listing command; surface a
+        # curated set of known model aliases the CLI accepts via --model.
+        return {
+            "models": [
+                "claude-opus-4-7",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5",
+            ]
+        }
+    else:
+        raise HTTPException(status_code=500, detail=f"Unknown provider {_ai_provider_name!r}")
+
     try:
         result = subprocess.run(
-            ["opencode", "models"],
-            capture_output=True, text=True, timeout=10,
+            cmd, capture_output=True, text=True, timeout=10,
         )
         models = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         return {"models": models}
@@ -269,7 +305,7 @@ async def stream_review(
     owner: str,
     repo: str,
     pr_number: int,
-    model: str | None = Query(default=None, description="OpenCode model override, e.g. anthropic/claude-opus-4-5"),
+    model: str | None = Query(default=None, description="AI provider model override (e.g. anthropic/claude-opus-4-5 for opencode, claude-opus-4-7 for claude-code)"),
     svc: ReviewService = Depends(get_review_service),
 ):
     """SSE endpoint that streams AI output in real-time, then emits the parsed result."""
