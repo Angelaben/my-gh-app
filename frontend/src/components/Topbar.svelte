@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { activeRepo } from '../stores/repos';
   import { activePR, activeTab } from '../stores/prs';
-  import { aiProvider, selectedModel } from '../stores/ui';
+  import { aiProvider, selectedModel, showToast } from '../stores/ui';
 
   let availableModels = $state<string[]>([]);
 
@@ -14,7 +14,9 @@
       ]);
       if (configRes.ok) {
         const data = await configRes.json();
-        aiProvider.set(data.ai_provider ?? '');
+        const provider = data.ai_provider ?? '';
+        aiProvider.set(provider);
+        if (provider) showToast(`AI provider: ${provider}`, 'info');
       }
       if (modelsRes.ok) {
         const data = await modelsRes.json();
@@ -53,7 +55,17 @@
 
   <div class="spacer"></div>
 
-  {#if $aiProvider === 'opencode'}
+  {#if $aiProvider}
+    <span
+      class="provider-badge"
+      class:provider-claude={$aiProvider === 'claude-code'}
+      title="Active AI provider (set via AI_PROVIDER env var)"
+    >
+      {$aiProvider}
+    </span>
+  {/if}
+
+  {#if $aiProvider && availableModels.length > 0}
     <div class="model-selector">
       <span class="model-label">Model</span>
       <select
@@ -115,6 +127,25 @@
   .crumb.active { color: var(--text-primary); }
 
   .spacer { flex: 1; }
+
+  .provider-badge {
+    margin-right: 12px;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 107, 53, 0.12);
+    border: 1px solid rgba(255, 107, 53, 0.35);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .provider-badge.provider-claude {
+    background: rgba(120, 80, 220, 0.14);
+    border-color: rgba(150, 110, 240, 0.45);
+    color: rgb(190, 160, 250);
+  }
 
   .model-selector {
     display: flex;
