@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { connectReviewStream } from '../lib/sse';
   import { cachedReview } from '../stores/prs';
-  import { showToast, selectedModel } from '../stores/ui';
+  import { showToast, selectedModel, aiProvider } from '../stores/ui';
   import type { Finding, Repo, PR, SSEReviewEvent } from '../lib/types';
   import FindingCard from './FindingCard.svelte';
 
@@ -63,12 +63,17 @@
     }
   }
 
-  const statusLabel: Record<Status, string> = {
-    connecting: 'Connecting to OpenCode…',
+  const PROVIDER_LABELS: Record<string, string> = {
+    'claude-code': 'Claude Code',
+    'opencode': 'OpenCode',
+  };
+  const providerLabel = $derived(PROVIDER_LABELS[$aiProvider] ?? ($aiProvider || 'AI provider'));
+  const statusLabel = $derived<Record<Status, string>>({
+    connecting: `Connecting to ${providerLabel}…`,
     streaming: 'Analyzing diff…',
     done: 'Review complete',
     error: 'Review failed',
-  };
+  });
 
   const priorities = ['P0', 'P1', 'P2', 'P3'] as const;
 </script>
@@ -101,12 +106,12 @@
           <button
             class="warn-btn"
             onclick={() => showWarnings = !showWarnings}
-            title="OpenCode reported warnings — click to view"
+            title="{providerLabel} reported warnings — click to view"
           >⚠ {warnings.length}</button>
           {#if showWarnings}
             <div class="warn-panel">
               <div class="warn-panel-header">
-                <span>OpenCode warnings</span>
+                <span>{providerLabel} warnings</span>
                 <button class="warn-close" onclick={() => showWarnings = false}>✕</button>
               </div>
               <pre class="warn-body">{warnings.join('\n')}</pre>

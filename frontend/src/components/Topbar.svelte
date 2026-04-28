@@ -2,9 +2,10 @@
   import { onMount } from 'svelte';
   import { activeRepo } from '../stores/repos';
   import { activePR, activeTab } from '../stores/prs';
-  import { aiProvider, selectedModel, showToast } from '../stores/ui';
+  import { aiProvider, selectedModel, modelStorageKey, showToast } from '../stores/ui';
 
   let availableModels = $state<string[]>([]);
+  let currentProvider = $state<string>('');
 
   onMount(async () => {
     try {
@@ -14,21 +15,34 @@
       ]);
       if (configRes.ok) {
         const data = await configRes.json();
-        const provider = data.ai_provider ?? '';
-        aiProvider.set(provider);
-        if (provider) showToast(`AI provider: ${provider}`, 'info');
+        currentProvider = data.ai_provider ?? '';
+        aiProvider.set(currentProvider);
+        if (currentProvider) showToast(`AI provider: ${currentProvider}`, 'info');
       }
       if (modelsRes.ok) {
         const data = await modelsRes.json();
         availableModels = data.models ?? [];
-        if (availableModels.length > 0 && !availableModels.includes($selectedModel)) {
-          selectedModel.set(availableModels[0]);
-        }
+      }
+      // Pick the active model from provider-scoped storage so a value cached
+      // for opencode (e.g. "anthropic/claude-sonnet-4-6") never leaks into a
+      // claude-code session and vice-versa.
+      if (currentProvider) {
+        const stored = localStorage.getItem(modelStorageKey(currentProvider)) ?? '';
+        const valid = availableModels.includes(stored);
+        const next = valid ? stored : (availableModels[0] ?? '');
+        selectedModel.set(next);
       }
     } catch {
       // silently ignore
     }
   });
+
+  function onModelChange(value: string) {
+    selectedModel.set(value);
+    if (currentProvider) {
+      localStorage.setItem(modelStorageKey(currentProvider), value);
+    }
+  }
 
   function goHome() {
     activeRepo.set(null);
@@ -71,7 +85,7 @@
       <select
         class="model-select"
         value={$selectedModel}
-        onchange={(e) => selectedModel.set((e.target as HTMLSelectElement).value)}
+        onchange={(e) => onModelChange((e.target as HTMLSelectElement).value)}
       >
         {#each availableModels as m}
           <option value={m}>{m}</option>

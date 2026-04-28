@@ -159,15 +159,11 @@ def list_models():
     if _ai_provider_name == "opencode":
         cmd = ["opencode", "models"]
     elif _ai_provider_name == "claude-code":
-        # Claude Code does not expose a `models` listing command; surface a
-        # curated set of known model aliases the CLI accepts via --model.
-        return {
-            "models": [
-                "claude-opus-4-7",
-                "claude-sonnet-4-6",
-                "claude-haiku-4-5",
-            ]
-        }
+        # Claude Code does not expose a `models` listing command, and pinned
+        # version names (e.g. 'claude-opus-4-7') are rejected by older CLI
+        # installs or accounts without access to that exact version. Aliases
+        # always resolve to the latest model the user's CLI supports.
+        return {"models": ["opus", "sonnet", "haiku"]}
     else:
         raise HTTPException(status_code=500, detail=f"Unknown provider {_ai_provider_name!r}")
 

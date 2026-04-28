@@ -6,17 +6,22 @@ export const toasts = writable<Toast[]>([]);
 /** Which AI provider is active (fetched once from /api/config). */
 export const aiProvider = writable<string>('');
 
-const _LAST_MODEL_KEY = 'gh_review_last_model';
+const _LAST_MODEL_KEY_PREFIX = 'gh_review_last_model';
 
-function createPersistedModel() {
-  const initial = localStorage.getItem(_LAST_MODEL_KEY) ?? 'anthropic/claude-sonnet-4-5';
-  const store = writable<string>(initial);
-  store.subscribe((v) => localStorage.setItem(_LAST_MODEL_KEY, v));
-  return store;
+export function modelStorageKey(provider: string): string {
+  return `${_LAST_MODEL_KEY_PREFIX}:${provider}`;
 }
 
-/** Selected OpenCode model. Persisted to localStorage across sessions. */
-export const selectedModel = createPersistedModel();
+/**
+ * Selected AI model for the active provider. Empty string means "use the
+ * provider's default" — the request omits the `model` param entirely.
+ *
+ * Initialised empty to avoid sending a stale value from a previous provider
+ * (e.g. an `anthropic/...` opencode name to the claude-code CLI). The Topbar
+ * populates this from provider-scoped localStorage once `/api/config` and
+ * `/api/models` have resolved.
+ */
+export const selectedModel = writable<string>('');
 
 /** AbortController for the currently running fix stream. Null when no fix is running. */
 export const activeFixController = writable<AbortController | null>(null);

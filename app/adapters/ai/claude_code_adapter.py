@@ -107,7 +107,12 @@ async def _stream_claude_code(
 
     extra_args: list[str] = ["-p", "--output-format", "text"]
     if model:
-        extra_args += ["--model", model]
+        # The Claude Code CLI accepts aliases ('sonnet') or full names
+        # ('claude-sonnet-4-6'), but rejects OpenCode/OpenRouter-style
+        # 'provider/model' identifiers. Strip the provider prefix so a
+        # value like 'anthropic/claude-sonnet-4-6' still works.
+        cli_model = model.split("/", 1)[1] if "/" in model else model
+        extra_args += ["--model", cli_model]
     # The fix flow runs against a real worktree and needs to actually edit files
     # without prompting for each tool call. Read-only flows (review, comment
     # analysis, commit-message generation) don't need to bypass permissions.
@@ -181,8 +186,11 @@ async def _stream_claude_code(
     stderr_lines = await stderr_task
 
     warning_lines = list(stderr_lines)
-    if output_lines == 0 and rc != 0:
-        warning_lines.insert(0, f"[claude exited with code {rc} and produced no output]")
+    if rc != 0:
+        if output_lines == 0:
+            warning_lines.insert(0, f"[claude exited with code {rc} and produced no output]")
+        else:
+            warning_lines.insert(0, f"[claude exited with code {rc}]")
 
     for err_line in warning_lines:
         yield f"\x00STDERR\x00{err_line}"
