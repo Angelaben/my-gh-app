@@ -9,15 +9,17 @@ Thank you for your interest in contributing! This document covers development se
 - **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/)
 - **Node.js 18+** and `npm`
 - **[gh CLI](https://cli.github.com/)** — authenticated (`gh auth login`)
-- **[opencode CLI](https://opencode.ai)** — installed and in PATH
+- **At least one AI provider CLI** — [`opencode`](https://opencode.ai) (default)
+  or [`claude`](https://docs.claude.com/claude-code), installed and in PATH
 
 ---
 
 ## Development Setup
 
 ```bash
-# Clone the repo
+# Clone the repo (SSH or HTTPS)
 git clone git@github.com:Angelaben/my-gh-app.git
+# git clone https://github.com/Angelaben/my-gh-app.git
 cd my-gh-app
 
 # Install Python dependencies (including dev: pytest, pytest-asyncio)
@@ -31,7 +33,8 @@ cd frontend && npm install && cd ..
 
 **Backend** (auto-reloads on file changes):
 ```bash
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload                  # opencode (default)
+AI_PROVIDER=claude-code uv run uvicorn app.main:app --reload   # Claude Code
 ```
 
 **Frontend** (hot module replacement, proxies API to :8000):
@@ -39,7 +42,12 @@ uv run uvicorn app.main:app --reload
 cd frontend
 npm run dev
 ```
-Then open [http://localhost:5173](http://localhost:5173) for the live frontend, or [http://localhost:8000](http://localhost:8000) for the full built app.
+Then open [http://localhost:5173](http://localhost:5173) for the live
+frontend, or [http://localhost:8000](http://localhost:8000) for the full built
+app.
+
+Or use `./launch.sh` to bring both up in a tmux split window — see the
+[README](README.md#one-shot-dev-launcher-optional).
 
 ---
 

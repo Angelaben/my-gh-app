@@ -8,17 +8,33 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Claude Code** as a selectable AI provider (`AI_PROVIDER=claude-code`)
+- Active AI provider surfaced in the UI alongside a model picker for both
+  providers, persisted to localStorage
+- `launch.sh` — one-shot dev launcher that boots backend + frontend in a
+  tmux split window
 - CONTRIBUTING.md with development setup and architecture guide
 - SECURITY.md documenting the local-only trust model
 - CHANGELOG.md
-- GitHub Actions CI workflow (backend on Python 3.12/3.13, frontend tests + build)
+- GitHub Actions CI workflow (backend on Python 3.12/3.13, frontend tests +
+  build)
 - GitHub issue templates (bug report, feature request)
 - GitHub pull request template
 - `.env.example` documenting that no environment variables are required
 
 ### Changed
-- README: added table of contents, CI badge, configuration section, troubleshooting, and "adapting for your needs" guide
+- README: added feature highlights, table of contents, CI badge, AI-provider
+  switching guide, configuration table, troubleshooting, and "adapting for
+  your needs" guide
 - `.gitignore`: added `.env`, `build/`, `*.egg-info/` patterns
+
+### Fixed
+- Claude Code review API failing on opencode-style `provider/model` names —
+  the provider prefix is now stripped before being passed to the `claude` CLI
+
+### Removed
+- Internal implementation-plan documents under `docs/superpowers/` (not
+  intended for end users)
 
 ---
 

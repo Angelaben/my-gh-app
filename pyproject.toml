@@ -1,7 +1,7 @@
 [project]
 name = "gh-review-tool"
 version = "0.1.0"
-description = "GitHub PR review dashboard powered by opencode"
+description = "Local GitHub PR review dashboard with pluggable AI backend (opencode, Claude Code)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

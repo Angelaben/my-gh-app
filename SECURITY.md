@@ -8,11 +8,27 @@ There is intentionally no authentication system — the server trusts the local 
 
 ## What This Tool Can Access
 
-- **GitHub** — via the `gh` CLI using your own authenticated session. All GitHub operations are performed as you, using your token stored in the gh CLI keyring.
-- **opencode** — via the `opencode` CLI using your own API credentials. The tool has no visibility into your AI provider keys.
-- **Local filesystem** — worktrees and bare clones are created under `~/.gh-review-tool/`. Cache data (PR lists, review results) is stored under `.cache/` in the project directory.
+- **GitHub** — via the `gh` CLI using your own authenticated session. All
+  GitHub operations are performed as you, using your token stored in the
+  gh CLI keyring.
+- **AI provider** (`opencode` or `claude-code`) — via the corresponding CLI
+  using your own API credentials. The tool has no visibility into your AI
+  provider keys; it shells out to the CLI you've already authenticated.
+- **Local filesystem** — worktrees and bare clones are created under
+  `~/.gh-review-tool/`. Cache data (PR lists, review results, visit
+  timestamps) is stored under `.cache/` in the project directory.
 
-The backend never stores, logs, or transmits your GitHub token or AI provider credentials.
+The backend never stores, logs, or transmits your GitHub token or AI provider
+credentials.
+
+## AI Fix Flow — File Modification Scope
+
+The "Implement Fix" feature lets the configured AI provider edit files in a
+local git worktree under `~/.gh-review-tool/worktrees/`. For `claude-code`,
+this is achieved with the `--dangerously-skip-permissions` flag so that the
+fix can run without per-tool prompts. The AI is restricted to the worktree's
+working directory — it has no access to your other repositories or to the
+tool's own source. Always review the generated diff in the UI before pushing.
 
 ## Important: Do Not Expose to a Network
 
@@ -33,7 +49,10 @@ uv run uvicorn app.main:app --reload
 
 ## GitHub Token Handling
 
-The application explicitly removes `GITHUB_TOKEN` and `GH_TOKEN` from the environment before launching any subprocess (`opencode`, `git`). This forces the `gh` CLI to use its keyring-based authentication and prevents token leakage into child processes.
+The application explicitly removes `GITHUB_TOKEN` and `GH_TOKEN` from the
+environment before launching any subprocess (`opencode`, `claude`, `git`,
+`gh`). This forces the `gh` CLI to use its keyring-based authentication and
+prevents token leakage into child processes.
 
 See `app/adapters/_subprocess.py` for the implementation.
 

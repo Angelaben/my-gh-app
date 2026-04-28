@@ -10,6 +10,16 @@ A local web dashboard for reviewing GitHub PRs with AI — pluggable backend, su
 
 Add repos, browse open PRs, get AI code reviews streamed in real-time, post comments, and auto-implement fixes directly on the PR branch.
 
+### Highlights
+
+- **Streaming reviews** — Server-Sent Events render the AI's analysis as it's produced
+- **Two AI backends** — switch between `opencode` and `claude-code` via one env variable
+- **Inline & PR comments** — publish findings as inline review comments or top-level PR comments
+- **AI fix flow** — implement reviewer feedback in an isolated git worktree, review the diff, then push to the PR branch or open a follow-up PR
+- **Comment intelligence** — analyze existing PR comments by criticality / validity / interest, detect new replies since your last visit
+- **Hexagonal architecture** — swap any external dep (AI, VCS, cache) by implementing one interface
+- **No secrets stored** — auth is delegated to the `gh` CLI keyring; tokens are stripped from subprocess envs
+
 ---
 
 ## Table of Contents
@@ -41,7 +51,9 @@ Add repos, browse open PRs, get AI code reviews streamed in real-time, post comm
 ## Installation
 
 ```bash
+# Choose either SSH or HTTPS:
 git clone git@github.com:Angelaben/my-gh-app.git
+# git clone https://github.com/Angelaben/my-gh-app.git
 cd my-gh-app
 
 # Install Python dependencies
@@ -61,6 +73,17 @@ AI_PROVIDER=claude-code uv run uvicorn app.main:app --reload
 ```
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
+
+### One-shot dev launcher (optional)
+
+If you have `tmux` installed, `./launch.sh` boots backend + frontend dev server
+in a single split window:
+
+```bash
+./launch.sh                          # default provider (opencode)
+./launch.sh --provider claude-code   # use Claude Code
+./launch.sh --help                   # full usage
+```
 
 ### Switching AI providers
 
@@ -91,13 +114,21 @@ analysis, and fix flows.
 
 ## Configuration
 
-No environment variables are required. Authentication is handled entirely by the `gh` CLI and `opencode`'s own configuration.
+No environment variables are required. Authentication is handled entirely by
+the `gh` CLI and the AI provider's own configuration (`opencode auth` or
+`claude` login).
+
+Optional environment variables:
+
+| Variable      | Default     | Purpose                                                |
+|---------------|-------------|--------------------------------------------------------|
+| `AI_PROVIDER` | `opencode`  | Selects the AI backend. Supported: `opencode`, `claude-code` |
 
 Data is stored in:
 - `.cache/` — PR lists, review results, visit timestamps (relative to the project directory)
 - `~/.gh-review-tool/` — bare git clones and worktrees used for fix implementation
 
-See [`.env.example`](.env.example) for details on optional settings.
+See [`.env.example`](.env.example) for details.
 
 ---
 
@@ -155,14 +186,17 @@ uv run uvicorn app.main:app --reload
 
 ## Troubleshooting
 
-**`opencode: command not found`**
-Ensure `opencode` is installed and in your `PATH`. Run `which opencode` to verify.
+**`opencode: command not found` / `claude: command not found`**
+Ensure the AI provider CLI for your active `AI_PROVIDER` is installed and in
+your `PATH`. Run `which opencode` or `which claude` to verify.
 
 **`gh: command not found` or authentication errors**
 Install the GitHub CLI and authenticate: `gh auth login`
 
 **Streaming review hangs or produces no output**
-`opencode` may be waiting for model API credentials. Check `opencode`'s own auth configuration.
+The AI provider may be waiting for credentials. For `opencode`, check its own
+auth configuration. For `claude-code`, run `claude` once interactively to
+complete login.
 
 **Port already in use**
 Change the port: `uv run uvicorn app.main:app --port 8001`
