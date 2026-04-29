@@ -113,11 +113,21 @@ async def _stream_claude_code(
         # value like 'anthropic/claude-sonnet-4-6' still works.
         cli_model = model.split("/", 1)[1] if "/" in model else model
         extra_args += ["--model", cli_model]
-    # The fix flow runs against a real worktree and needs to actually edit files
-    # without prompting for each tool call. Read-only flows (review, comment
-    # analysis, commit-message generation) don't need to bypass permissions.
     if allow_edits:
+        # Fix flow: keep CLAUDE.md auto-discovery, hooks, plugins so claude
+        # has project context while editing, and bypass per-tool prompts.
         extra_args += ["--dangerously-skip-permissions"]
+    else:
+        # Read-only flows (review, analyze comments, generate-text): use
+        # --bare so keychain reads, hooks, LSP, and CLAUDE.md auto-discovery
+        # are skipped. Without --bare, headless subprocess invocations fail
+        # the keychain-read step (the keychain agent gates non-interactive
+        # access) and Claude Code falls back to a stricter model-validation
+        # path that rejects Bedrock inference profiles with a misleading
+        # "may not exist or you may not have access" error. --bare keeps
+        # 3P (Bedrock/Vertex/Foundry) credentials intact, which is what
+        # the read-only flows need.
+        extra_args += ["--bare"]
 
     if len(prompt) > 4000:
         proc = await asyncio.create_subprocess_exec(

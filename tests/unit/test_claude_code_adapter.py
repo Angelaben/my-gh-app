@@ -207,6 +207,37 @@ async def test_stream_claude_code_passes_unprefixed_model_through(monkeypatch):
     assert args[args.index("--model") + 1] == "claude-opus-4-7"
 
 
+async def test_stream_claude_code_uses_bare_for_read_only_flows(monkeypatch):
+    """Review / analyze / generate-text invocations must include --bare so
+    Claude Code skips the keychain-read step that breaks headless subprocess
+    invocation against Bedrock inference profiles."""
+    captured: dict = {}
+    proc = _FakeProc([b'{"summary":"ok","findings":[]}\n'], [], 0)
+    _patch_subprocess(monkeypatch, proc, captured)
+
+    async for _ in _stream_claude_code("hi"):
+        pass
+
+    args = captured["args"]
+    assert "--bare" in args, f"--bare must be passed for read-only flows, got {args!r}"
+    assert "--dangerously-skip-permissions" not in args
+
+
+async def test_stream_claude_code_omits_bare_for_fix_flow(monkeypatch):
+    """The fix flow needs CLAUDE.md / hooks / plugins for project context, so
+    --bare must NOT be passed; --dangerously-skip-permissions still is."""
+    captured: dict = {}
+    proc = _FakeProc([b"ok\n"], [], 0)
+    _patch_subprocess(monkeypatch, proc, captured)
+
+    async for _ in _stream_claude_code("hi", allow_edits=True):
+        pass
+
+    args = captured["args"]
+    assert "--bare" not in args, f"--bare must be absent for fix flow, got {args!r}"
+    assert "--dangerously-skip-permissions" in args
+
+
 async def test_stream_claude_code_warns_on_nonzero_exit_with_output(monkeypatch):
     captured: dict = {}
     error_msg = b"There's an issue with the selected model (foo). It may not exist...\n"
