@@ -1,12 +1,23 @@
 <script lang="ts">
   import type { Finding, Repo, PR } from '../lib/types';
-  import { publishFinding, stageFinding, unstageFinding, stagedReviewFindings } from '../stores/prs';
+  import {
+    publishFinding,
+    stageFinding,
+    unstageFinding,
+    stagedReviewFindings,
+    formatFindingBody,
+    setFindingBodyOverride,
+    clearFindingBodyOverride,
+    findingBodyOverrides,
+  } from '../stores/prs';
   import { showToast } from '../stores/ui';
 
   let { finding, repo, pr, index = 0 }: { finding: Finding; repo: Repo; pr: PR; index?: number } = $props();
 
   let publishing = $state(false);
   let published = $state(false);
+  let editing = $state(false);
+  let editBody = $state('');
 
   let isStaged = $derived(
     $stagedReviewFindings.some(
@@ -16,6 +27,10 @@
         f.file === finding.file &&
         f.line === finding.line,
     ),
+  );
+
+  let hasOverride = $derived(
+    $findingBodyOverrides.has(`${finding.priority}:${finding.title}:${finding.file ?? ''}:${finding.line ?? ''}`)
   );
 
   async function handlePublish() {
@@ -43,6 +58,32 @@
       showToast('Added to review', 'success');
     }
   }
+
+  function startEdit() {
+    const currentKey = `${finding.priority}:${finding.title}:${finding.file ?? ''}:${finding.line ?? ''}`;
+    editBody = $findingBodyOverrides.get(currentKey) ?? formatFindingBody(finding);
+    editing = true;
+  }
+
+  function saveEdit() {
+    if (editBody.trim()) {
+      setFindingBodyOverride(finding, editBody.trim());
+      showToast('Comment saved', 'info');
+    }
+    editing = false;
+  }
+
+  function cancelEdit() {
+    editing = false;
+    editBody = '';
+  }
+
+  function resetToAI() {
+    clearFindingBodyOverride(finding);
+    editing = false;
+    editBody = '';
+    showToast('Reset to AI-generated text', 'info');
+  }
 </script>
 
 <div
@@ -57,6 +98,15 @@
       <span class="file-ref">{finding.file}{finding.line ? `:${finding.line}` : ''}</span>
     {/if}
     <div class="actions">
+      {#if !published}
+        <button
+          class="btn btn-sm {editing ? 'btn-ghost' : hasOverride ? 'btn-edited' : 'btn-ghost'}"
+          onclick={editing ? cancelEdit : startEdit}
+          title={editing ? 'Cancel edit' : hasOverride ? 'Edit saved comment' : 'Edit comment before publishing'}
+        >
+          {editing ? '✗' : hasOverride ? '✎ Edited' : '✎'}
+        </button>
+      {/if}
       <button
         class="btn btn-sm {isStaged ? 'btn-staged' : 'btn-ghost'}"
         onclick={handleAddToReview}
@@ -74,6 +124,29 @@
       </button>
     </div>
   </div>
+
+  {#if editing}
+    <div class="edit-mode">
+      <label class="edit-label" for="edit-body-{index}">Edit comment body</label>
+      <textarea
+        id="edit-body-{index}"
+        class="edit-textarea"
+        rows="8"
+        bind:value={editBody}
+      ></textarea>
+      <div class="edit-actions">
+        <button class="btn btn-sm btn-ghost" onclick={cancelEdit}>✗ Discard</button>
+        {#if hasOverride}
+          <button class="btn btn-sm btn-ghost" onclick={resetToAI}>↺ Reset to AI</button>
+        {/if}
+        <button
+          class="btn btn-sm btn-accent"
+          onclick={saveEdit}
+          disabled={!editBody.trim()}
+        >💾 Save</button>
+      </div>
+    </div>
+  {/if}
 
   <p class="finding-desc">{finding.description}</p>
 
@@ -142,9 +215,53 @@
   .btn-warn:hover:not(:disabled) {
     background: rgba(255, 140, 66, 0.25);
   }
+  .btn-edited {
+    background: rgba(80, 180, 120, 0.15);
+    border: 1px solid rgba(80, 200, 120, 0.45);
+    color: rgb(120, 220, 160);
+  }
+  .btn-edited:hover {
+    background: rgba(80, 180, 120, 0.25);
+  }
   .finding-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin: 0; }
   .suggestion { margin-top: 10px; }
   .suggestion summary { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; user-select: none; }
   .suggestion summary:hover { color: var(--text-secondary); }
   .suggestion-body { margin-top: 8px; font-size: 11px; color: var(--text-secondary); background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre-wrap; overflow-x: auto; line-height: 1.5; }
+  .edit-mode {
+    margin: 0 0 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .edit-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .edit-textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 10px 12px;
+    resize: vertical;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast);
+  }
+  .edit-textarea:focus {
+    outline: none;
+    border-color: rgba(255, 107, 53, 0.55);
+  }
+  .edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
 </style>
