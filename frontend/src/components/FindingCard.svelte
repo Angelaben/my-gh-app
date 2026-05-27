@@ -34,10 +34,17 @@
   );
 
   async function handlePublish() {
+    // Force edit step on first publish so users always review the text.
+    // If an override is already saved, publish immediately (one click).
+    if (!hasOverride) {
+      startEdit();
+      return;
+    }
     publishing = true;
     try {
       await publishFinding(repo.owner, repo.name, pr.number, finding);
       published = true;
+      editing = false;
       const msg = finding.priority === 'P1'
         ? 'Published as Request Changes review'
         : 'Published to PR';
@@ -47,6 +54,11 @@
     } finally {
       publishing = false;
     }
+  }
+
+  async function confirmPublish() {
+    saveEdit();
+    await handlePublish();
   }
 
   function handleAddToReview() {
@@ -95,7 +107,9 @@
     <span class="badge badge-{finding.priority.toLowerCase()}">{finding.priority}</span>
     <span class="finding-title">{finding.title}</span>
     {#if finding.file}
-      <span class="file-ref">{finding.file}{finding.line ? `:${finding.line}` : ''}</span>
+      <span class="file-ref" class:no-line={!finding.line}>
+        {finding.file}{finding.line ? `:${finding.line}` : ' ⚠ no line'}
+      </span>
     {/if}
     <div class="actions">
       {#if !published}
@@ -140,10 +154,15 @@
           <button class="btn btn-sm btn-ghost" onclick={resetToAI}>↺ Reset to AI</button>
         {/if}
         <button
-          class="btn btn-sm btn-accent"
+          class="btn btn-sm btn-ghost"
           onclick={saveEdit}
           disabled={!editBody.trim()}
-        >💾 Save</button>
+        >💾 Save only</button>
+        <button
+          class="btn btn-sm {finding.priority === 'P1' ? 'btn-warn' : 'btn-accent'}"
+          onclick={confirmPublish}
+          disabled={publishing || !editBody.trim()}
+        >{publishing ? '…' : '✓ Confirm & Publish'}</button>
       </div>
     </div>
   {/if}
@@ -191,6 +210,7 @@
   .finding-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .finding-title { font-size: 12px; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
   .file-ref { font-size: 10px; color: var(--text-muted); font-style: italic; white-space: nowrap; }
+  .file-ref.no-line { color: rgb(240, 180, 80); }
   .actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
   .btn-ghost {
     background: transparent;

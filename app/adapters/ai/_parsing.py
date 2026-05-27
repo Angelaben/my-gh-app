@@ -7,8 +7,17 @@ single, testable place.
 """
 import json
 import logging
+import re
 
 from app.domain.models import Finding, Review
+
+
+def _parse_line(val: object) -> int | None:
+    """Extract the first integer from a line reference (handles ranges like '42-50')."""
+    if val is None:
+        return None
+    m = re.match(r'\d+', str(val).strip())
+    return int(m.group()) if m else None
 
 
 def parse_review_output(output: str, *, provider: str) -> Review:
@@ -30,7 +39,7 @@ def parse_review_output(output: str, *, provider: str) -> Review:
                     title=f.get("title", ""),
                     description=f.get("description", ""),
                     file=f.get("file"),
-                    line=int(f["line"]) if f.get("line") is not None and str(f["line"]).isdigit() else None,
+                    line=_parse_line(f.get("line")),
                     suggestion=f.get("suggestion"),
                 )
                 for f in data.get("findings", [])

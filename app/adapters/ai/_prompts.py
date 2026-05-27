@@ -20,7 +20,7 @@ Analyze the attached diff and provide a code review. For each issue found, class
 - P3: Suggestion - Nice-to-have, optional improvement
 
 Return your response as a JSON object with this exact structure:
-{{"summary": "Brief overall assessment", "findings": [{{"criticality": "P0", "title": "Short title", "description": "Detailed explanation", "file": "filename if applicable", "line": "line number or range if applicable", "suggestion": "Suggested fix if applicable"}}]}}
+{{"summary": "Brief overall assessment", "findings": [{{"criticality": "P0", "title": "Short title", "description": "Detailed explanation", "file": "path/to/file.py or null", "line": "line number or range (e.g. 42 or 42-50) — required when file is not null, otherwise null", "suggestion": "Suggested fix if applicable"}}]}}
 
 IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
 
