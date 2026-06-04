@@ -14,6 +14,7 @@ export interface PR {
   deletions: number;
   updated_at: string;
   url: string;
+  is_draft: boolean;
 }
 
 export interface Finding {

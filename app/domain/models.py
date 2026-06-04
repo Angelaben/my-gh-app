@@ -41,6 +41,7 @@ class PR:
     deletions: int
     updated_at: str
     url: str
+    is_draft: bool = False
 
 
 @dataclass
