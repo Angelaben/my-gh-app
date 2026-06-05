@@ -11,6 +11,9 @@
 <button class="pr-item" onclick={onselect}>
   <div class="pr-top">
     <span class="pr-number">#{pr.number}</span>
+    <span class="pr-status {pr.is_draft ? 'status-draft' : 'status-ready'}">
+      {pr.is_draft ? 'DRAFT' : 'READY'}
+    </span>
     <span class="pr-title">{pr.title}</span>
   </div>
   <div class="pr-meta">
@@ -42,7 +45,21 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   }
-  .pr-top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .pr-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .pr-status {
+    font-size: 9px; font-weight: 800; padding: 2px 5px;
+    border-radius: 3px; flex-shrink: 0; letter-spacing: 0.04em;
+  }
+  .status-draft {
+    background: rgba(85,85,104,0.2);
+    color: var(--text-muted);
+    border: 1px solid rgba(85,85,104,0.35);
+  }
+  .status-ready {
+    background: rgba(78,205,196,0.12);
+    color: var(--success);
+    border: 1px solid rgba(78,205,196,0.25);
+  }
   .pr-number { font-size: 11px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
   .pr-title { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pr-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }

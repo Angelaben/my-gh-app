@@ -44,7 +44,7 @@ class GitHubCLIAdapter(VCSPort):
         raw = self._run([
             "pr", "list",
             "--repo", repo_full_name,
-            "--json", "number,title,author,url,updatedAt,headRefName,baseRefName,state,additions,deletions",
+            "--json", "number,title,author,url,updatedAt,headRefName,baseRefName,isDraft,additions,deletions",
             "--limit", "50",
             "--state", "open",
         ])
@@ -64,6 +64,7 @@ class GitHubCLIAdapter(VCSPort):
                 deletions=pr.get("deletions", 0),
                 updated_at=pr["updatedAt"],
                 url=pr["url"],
+                is_draft=pr.get("isDraft", False),
             )
             for pr in prs
         ]

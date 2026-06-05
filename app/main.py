@@ -417,6 +417,7 @@ def refresh_prs(owner: str, repo: str):
                 "deletions": pr.deletions,
                 "updated_at": pr.updated_at,
                 "url": pr.url,
+                "is_draft": pr.is_draft,
             }
             for pr in prs
         ]
