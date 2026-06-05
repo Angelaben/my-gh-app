@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GH-Review — Theme Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+
+/* ═══════════════════════════════════════════
+   SHARED (non-thémable)
+═══════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  --transition-fast: 150ms ease;
+  --transition-base: 220ms ease;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --p0: #ff3b3b;
+  --p1: #ff8c42;
+  --p2: #ffd166;
+  --p3: #7ec8e3;
+  --glow-p0: 0 0 8px rgba(255,59,59,0.35);
+  --glow-p1: 0 0 8px rgba(255,140,66,0.25);
+  --glow-accent: 0 0 12px rgba(255,107,53,0.25);
+}
+
+/* ═══════════════════════════════════════════
+   THÈME 1 : DARK (actuel)
+═══════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg-primary:    #0a0a0f;
+  --bg-secondary:  #12121a;
+  --bg-tertiary:   #1a1a26;
+  --bg-hover:      #22222e;
+  --border:        #2a2a3a;
+  --border-active: #4a4a6a;
+  --text-primary:  #e0e0e8;
+  --text-secondary:#8888a0;
+  --text-muted:    #555568;
+  --accent:        #ff6b35;
+  --accent-hover:  #ff8555;
+  --success:       #4ecdc4;
+  --glass-bg:      rgba(255,255,255,0.06);
+  --glass-bg-hover:rgba(255,255,255,0.09);
+  --glass-border:  rgba(255,255,255,0.12);
+  --glass-border-hover: rgba(255,255,255,0.18);
+  --topbar-bg:     rgba(10,10,15,0.92);
+  --sidebar-bg:    rgba(18,18,26,0.85);
+  --code-bg:       #16161e;
+  --shadow-card:   0 2px 12px rgba(0,0,0,0.4);
+}
+
+/* ═══════════════════════════════════════════
+   THÈME 2 : DIM — GitHub Dark Dimmed
+═══════════════════════════════════════════ */
+[data-theme="dim"] {
+  --bg-primary:    #22272e;
+  --bg-secondary:  #2d333b;
+  --bg-tertiary:   #373e47;
+  --bg-hover:      #3d444d;
+  --border:        #444c56;
+  --border-active: #636e7b;
+  --text-primary:  #adbac7;
+  --text-secondary:#768390;
+  --text-muted:    #545d68;
+  --accent:        #539bf5;
+  --accent-hover:  #6eb3ff;
+  --success:       #57ab5a;
+  --glass-bg:      rgba(255,255,255,0.04);
+  --glass-bg-hover:rgba(255,255,255,0.07);
+  --glass-border:  rgba(255,255,255,0.08);
+  --glass-border-hover: rgba(255,255,255,0.14);
+  --topbar-bg:     rgba(22,27,34,0.94);
+  --sidebar-bg:    rgba(22,27,34,0.80);
+  --code-bg:       #1e2228;
+  --shadow-card:   0 2px 12px rgba(0,0,0,0.3);
+  /* Priority colors légèrement adoucis pour fond moins contrasté */
+  --p0: #e5534b;
+  --p1: #e09b50;
+  --p2: #c9a227;
+  --p3: #6cb6db;
+}
+
+/* ═══════════════════════════════════════════
+   THÈME 3 : LIGHT — GitHub Light
+═══════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg-primary:    #f6f8fa;
+  --bg-secondary:  #ffffff;
+  --bg-tertiary:   #eaeef2;
+  --bg-hover:      #e2e8f0;
+  --border:        #d0d7de;
+  --border-active: #0969da;
+  --text-primary:  #1f2328;
+  --text-secondary:#636c76;
+  --text-muted:    #9198a1;
+  --accent:        #c63300;
+  --accent-hover:  #a52a00;
+  --success:       #1a7f37;
+  --glass-bg:      rgba(0,0,0,0.03);
+  --glass-bg-hover:rgba(0,0,0,0.05);
+  --glass-border:  rgba(0,0,0,0.10);
+  --glass-border-hover: rgba(0,0,0,0.18);
+  --topbar-bg:     rgba(246,248,250,0.95);
+  --sidebar-bg:    rgba(255,255,255,0.90);
+  --code-bg:       #f0f2f5;
+  --shadow-card:   0 1px 6px rgba(0,0,0,0.08), 0 0 0 1px var(--border);
+  /* Priority colors lisibles sur fond clair */
+  --p0: #d1242f;
+  --p1: #bc4c00;
+  --p2: #7d4e00;
+  --p3: #0969da;
+}
+
+/* ═══════════════════════════════════════════
+   LAYOUT
+═══════════════════════════════════════════ */
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background var(--transition-base), color var(--transition-base);
+}
+
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 240px 1fr;
+  grid-template-areas: 'topbar topbar' 'sidebar main';
+}
+
+/* ═══════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════ */
+.topbar {
+  grid-area: topbar;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 20px;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky; top: 0; z-index: 10;
+}
+
+.logo {
+  background: none; border: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 13px; font-weight: 800; letter-spacing: 0.12em;
+  cursor: pointer; padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.logo:hover { background: var(--glass-bg); }
+
+.breadcrumb { display: flex; align-items: center; gap: 2px; }
+.sep { color: var(--text-muted); margin: 0 2px; font-size: 12px; }
+.crumb {
+  background: none; border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono); font-size: 12px;
+  cursor: pointer; padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+.crumb.active { color: var(--text-primary); }
+
+.spacer { flex: 1; }
+
+.provider-badge {
+  margin-right: 12px; padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer;
+  background: rgba(120,80,220,0.14);
+  border-color: rgba(150,110,240,0.45);
+  color: rgb(190,160,250);
+}
+
+.model-label {
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-right: 6px;
+}
+.model-select {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 3px 8px; cursor: pointer;
+}
+
+/* ─── Theme Toggle ─── */
+.theme-toggle {
+  margin-left: 14px;
+  display: flex; align-items: center; gap: 3px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 3px 5px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.theme-toggle:hover { background: var(--glass-bg-hover); border-color: var(--glass-border-hover); }
+
+.theme-btn {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: none; background: none;
+  cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.4;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+  padding: 0;
+}
+.theme-btn.active {
+  opacity: 1;
+  background: var(--glass-bg-hover);
+}
+.theme-btn:hover { opacity: 0.8; }
+
+/* ═══════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════ */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid var(--glass-border);
+  display: flex; flex-direction: column;
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+.sidebar-title {
+  font-size: 9px; font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+.search-input {
+  width: 100%;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 6px 10px; margin-bottom: 10px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--text-muted); }
+
+.repo-item {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+  transition: all var(--transition-fast);
+}
+.repo-item:hover { background: var(--glass-bg); border-color: var(--glass-border); color: var(--text-primary); }
+.repo-item.active {
+  background: rgba(255,107,53,0.08);
+  border-color: rgba(255,107,53,0.25);
+  color: var(--accent);
+}
+[data-theme="dim"] .repo-item.active {
+  background: rgba(83,155,245,0.08);
+  border-color: rgba(83,155,245,0.25);
+  color: var(--accent);
+}
+[data-theme="light"] .repo-item.active {
+  background: rgba(198,51,0,0.06);
+  border-color: rgba(198,51,0,0.2);
+  color: var(--accent);
+}
+
+.repo-name { font-weight: 600; }
+.repo-owner { font-size: 10px; color: var(--text-muted); }
+
+/* ═══════════════════════════════════════════
+   MAIN CONTENT
+═══════════════════════════════════════════ */
+.main {
+  grid-area: main;
+  overflow-y: auto;
+  padding: 20px;
+  background: var(--bg-primary);
+}
+
+/* ── PR List ── */
+.pr-section { margin-bottom: 28px; }
+.section-title {
+  font-size: 9px; font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+
+.pr-item {
+  display: block; width: 100%;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 11px 14px; cursor: pointer; text-align: left;
+  transition: all var(--transition-fast);
+  margin-bottom: 6px;
+  box-shadow: var(--shadow-card);
+}
+.pr-item:hover {
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-hover);
+  transform: translateY(-1px);
+}
+.pr-top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.pr-number { font-size: 11px; font-weight: 700; color: var(--accent); }
+.pr-title { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+.pr-status {
+  font-size: 9px; font-weight: 800; padding: 2px 5px;
+  border-radius: 3px; flex-shrink: 0; letter-spacing: 0.04em;
+}
+.status-draft {
+  background: rgba(85,85,104,0.2);
+  color: var(--text-muted);
+  border: 1px solid rgba(85,85,104,0.35);
+}
+.status-ready {
+  background: rgba(78,205,196,0.12);
+  color: var(--success);
+  border: 1px solid rgba(78,205,196,0.25);
+}
+[data-theme="dim"] .status-ready {
+  background: rgba(87,171,90,0.12);
+  border-color: rgba(87,171,90,0.25);
+}
+[data-theme="light"] .status-ready {
+  background: rgba(26,127,55,0.10);
+  color: var(--success);
+  border-color: rgba(26,127,55,0.25);
+}
+
+.pr-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.meta-item { font-size: 10px; color: var(--text-muted); }
+.meta-sep { font-size: 10px; color: var(--border-active); }
+.meta-right { margin-left: auto; }
+.meta-branch { color: var(--text-secondary); font-style: italic; }
+.meta-add { color: var(--success); }
+.meta-del { color: var(--p0); }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--glass-border); margin-bottom: 16px; }
+.tab {
+  padding: 8px 16px; font-size: 12px; font-weight: 600;
+  color: var(--text-secondary); cursor: pointer;
+  border: none; background: none;
+  font-family: var(--font-mono);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all var(--transition-fast);
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text-primary); }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 800;
+  letter-spacing: 0.05em; padding: 2px 6px; border-radius: 3px;
+}
+.badge-p0 { background: rgba(255,59,59,0.15); color: var(--p0); border: 1px solid rgba(255,59,59,0.25); }
+.badge-p1 { background: rgba(255,140,66,0.15); color: var(--p1); border: 1px solid rgba(255,140,66,0.25); }
+.badge-p2 { background: rgba(255,209,102,0.12); color: var(--p2); border: 1px solid rgba(255,209,102,0.2); }
+.badge-p3 { background: rgba(126,200,227,0.12); color: var(--p3); border: 1px solid rgba(126,200,227,0.2); }
+
+[data-theme="light"] .badge-p0 { background: rgba(209,36,47,0.08); border-color: rgba(209,36,47,0.2); }
+[data-theme="light"] .badge-p1 { background: rgba(188,76,0,0.08); border-color: rgba(188,76,0,0.2); }
+[data-theme="light"] .badge-p2 { background: rgba(125,78,0,0.08); border-color: rgba(125,78,0,0.2); }
+[data-theme="light"] .badge-p3 { background: rgba(9,105,218,0.08); border-color: rgba(9,105,218,0.2); }
+
+/* ── Finding Cards ── */
+.finding {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  position: relative; overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.finding::before {
+  content: ''; position: absolute;
+  left: 0; top: 0; bottom: 0; width: 3px;
+}
+.finding-p0::before { background: var(--p0); box-shadow: var(--glow-p0); }
+.finding-p1::before { background: var(--p1); box-shadow: var(--glow-p1); }
+.finding-p2::before { background: var(--p2); }
+.finding-p3::before { background: var(--p3); }
+.finding-p0:hover { border-color: rgba(255,59,59,0.22); box-shadow: var(--glow-p0); }
+.finding-p1:hover { border-color: rgba(255,140,66,0.2); box-shadow: var(--glow-p1); }
+
+.finding-header { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; flex-wrap: wrap; }
+.finding-title { font-size: 12px; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
+.file-ref { font-size: 10px; color: var(--text-muted); font-style: italic; white-space: nowrap; }
+.finding-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
+.actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+.btn:hover { background: var(--glass-bg-hover); border-color: var(--glass-border-hover); }
+
+.btn-ghost { background: transparent; border-color: var(--glass-border); color: var(--text-secondary); }
+.btn-accent { background: rgba(255,107,53,0.15); border-color: rgba(255,107,53,0.35); color: var(--accent); }
+.btn-warn   { background: rgba(255,140,66,0.16); border-color: rgba(255,140,66,0.45); color: var(--p1); }
+.btn-stage  { background: rgba(120,80,220,0.18); border-color: rgba(150,110,240,0.55); color: rgb(190,160,255); }
+
+[data-theme="dim"] .btn-accent { background: rgba(83,155,245,0.12); border-color: rgba(83,155,245,0.3); }
+[data-theme="light"] .btn-accent { background: rgba(198,51,0,0.08); border-color: rgba(198,51,0,0.25); color: var(--accent); }
+[data-theme="light"] .btn-warn   { background: rgba(188,76,0,0.08); border-color: rgba(188,76,0,0.25); }
+
+/* ── Comment Cards ── */
+.comment-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px; margin-bottom: 8px;
+  box-shadow: var(--shadow-card);
+}
+.comment-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.comment-author { font-size: 11px; font-weight: 700; color: var(--text-primary); }
+.comment-date { font-size: 10px; color: var(--text-muted); }
+.comment-body { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.comment-file { font-size: 10px; color: var(--accent); margin-bottom: 6px; font-style: italic; }
+
+/* ── Filter bar ── */
+.filter-bar { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-btn {
+  padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--glass-border); background: var(--glass-bg);
+  color: var(--text-secondary); cursor: pointer; font-family: var(--font-mono);
+  transition: all var(--transition-fast);
+}
+.filter-btn:hover { background: var(--glass-bg-hover); color: var(--text-primary); }
+.filter-btn.active { background: var(--glass-bg-hover); color: var(--text-primary); border-color: var(--glass-border-hover); }
+.filter-btn.all { color: var(--text-primary); }
+.filter-btn.p0 { background: rgba(255,59,59,0.1); border-color: rgba(255,59,59,0.3); color: var(--p0); }
+.filter-btn.p1 { background: rgba(255,140,66,0.1); border-color: rgba(255,140,66,0.25); color: var(--p1); }
+.filter-btn.p2 { background: rgba(255,209,102,0.08); border-color: rgba(255,209,102,0.2); color: var(--p2); }
+.filter-btn.p3 { background: rgba(126,200,227,0.08); border-color: rgba(126,200,227,0.2); color: var(--p3); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Theme indicator label ── */
+.theme-label {
+  position: fixed; bottom: 20px; right: 20px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 12px; border-radius: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+</style>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <button class="logo">GH-REVIEW</button>
+    <nav class="breadcrumb">
+      <span class="sep">/</span>
+      <button class="crumb">angelaben / my-gh-app</button>
+      <span class="sep">/</span>
+      <button class="crumb active">#42</button>
+    </nav>
+
+    <div class="spacer"></div>
+
+    <button class="provider-badge">claude-code</button>
+    <span class="model-label">Model</span>
+    <select class="model-select">
+      <option>claude-sonnet-4-6</option>
+    </select>
+
+    <!-- Theme Toggle -->
+    <div class="theme-toggle" title="Changer de thème">
+      <button class="theme-btn active" id="btn-dark"   onclick="setTheme('dark')"  title="Dark">🌑</button>
+      <button class="theme-btn"        id="btn-dim"    onclick="setTheme('dim')"   title="Dim">🌗</button>
+      <button class="theme-btn"        id="btn-light"  onclick="setTheme('light')" title="Light">☀️</button>
+    </div>
+  </header>
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sidebar-title">Repos</div>
+    <input class="search-input" type="text" placeholder="Filter repos…" value="">
+
+    <div class="repo-item">
+      <div class="repo-owner">facebook</div>
+      <div class="repo-name">react</div>
+    </div>
+    <div class="repo-item active">
+      <div class="repo-owner">angelaben</div>
+      <div class="repo-name">my-gh-app</div>
+    </div>
+    <div class="repo-item">
+      <div class="repo-owner">vercel</div>
+      <div class="repo-name">next.js</div>
+    </div>
+    <div class="repo-item">
+      <div class="repo-owner">anthropics</div>
+      <div class="repo-name">claude-code</div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main class="main">
+
+    <!-- PR LIST -->
+    <section class="pr-section">
+      <div class="section-title">Pull Requests — my-gh-app</div>
+
+      <div class="pr-item">
+        <div class="pr-top">
+          <span class="pr-number">#45</span>
+          <span class="pr-status status-draft">DRAFT</span>
+          <span class="pr-title">feat: add streaming SSE endpoint for real-time review output</span>
+        </div>
+        <div class="pr-meta">
+          <span class="meta-item">angelaben</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-branch">feat/streaming-sse</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-add">+312</span>
+          <span class="meta-item meta-del">-48</span>
+          <span class="meta-sep meta-right">·</span>
+          <span class="meta-item">3 Jun</span>
+        </div>
+      </div>
+
+      <div class="pr-item">
+        <div class="pr-top">
+          <span class="pr-number">#44</span>
+          <span class="pr-status status-ready">READY</span>
+          <span class="pr-title">feat: add draft/ready-to-review badge on PR list items</span>
+        </div>
+        <div class="pr-meta">
+          <span class="meta-item">angelaben</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-branch">claude/ecstatic-ramanujan</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-add">+23</span>
+          <span class="meta-item meta-del">-2</span>
+          <span class="meta-sep meta-right">·</span>
+          <span class="meta-item">5 Jun</span>
+        </div>
+      </div>
+
+      <div class="pr-item">
+        <div class="pr-top">
+          <span class="pr-number">#43</span>
+          <span class="pr-status status-ready">READY</span>
+          <span class="pr-title">fix: retry logic for transient 502/503 GitHub API errors</span>
+        </div>
+        <div class="pr-meta">
+          <span class="meta-item">mbertrand</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-branch">fix/retry-transient</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-add">+67</span>
+          <span class="meta-item meta-del">-14</span>
+          <span class="meta-sep meta-right">·</span>
+          <span class="meta-item">2 Jun</span>
+        </div>
+      </div>
+
+      <div class="pr-item">
+        <div class="pr-top">
+          <span class="pr-number">#42</span>
+          <span class="pr-status status-draft">DRAFT</span>
+          <span class="pr-title">refactor: extract BaseAdapter for shared CLI streaming logic</span>
+        </div>
+        <div class="pr-meta">
+          <span class="meta-item">angelaben</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-branch">refactor/base-adapter</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item meta-add">+201</span>
+          <span class="meta-item meta-del">-156</span>
+          <span class="meta-sep meta-right">·</span>
+          <span class="meta-item">1 Jun</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- REVIEW TAB -->
+    <section>
+      <div class="tabs">
+        <button class="tab active">Review</button>
+        <button class="tab">Comments</button>
+      </div>
+
+      <div class="filter-bar">
+        <button class="filter-btn all active">All 19</button>
+        <button class="filter-btn p0">P0 0</button>
+        <button class="filter-btn p1">P1 6</button>
+        <button class="filter-btn p2">P2 10</button>
+        <button class="filter-btn p3">P3 3</button>
+      </div>
+
+      <!-- Finding P1 -->
+      <div class="finding finding-p1">
+        <div class="finding-header">
+          <span class="badge badge-p1">P1</span>
+          <span class="finding-title">Silent data loss when pair returns None without exception</span>
+          <span class="file-ref">app/adapters/vcs/github_cli_adapter.py:67</span>
+          <div class="actions">
+            <button class="btn btn-ghost">✎ Edit comment</button>
+            <button class="btn btn-stage">+ Add to review</button>
+            <button class="btn btn-warn">⚠ Request changes</button>
+          </div>
+        </div>
+        <p class="finding-desc">In <code>list_prs()</code>, after the subprocess call, if <code>raw</code> is <code>None</code> the list silently returns empty without logging the failure. Callers receive an empty list indistinguishable from a repo with no open PRs, making the failure invisible.</p>
+      </div>
+
+      <!-- Finding P2 -->
+      <div class="finding finding-p2">
+        <div class="finding-header">
+          <span class="badge badge-p2">P2</span>
+          <span class="finding-title">Model selector ignores custom value on provider switch</span>
+          <span class="file-ref">frontend/src/components/Topbar.svelte:145</span>
+          <div class="actions">
+            <button class="btn btn-ghost">✎ Edited</button>
+            <button class="btn btn-stage">✓ In review</button>
+            <button class="btn btn-accent">↗ Publish</button>
+          </div>
+        </div>
+        <p class="finding-desc">When the provider changes via the modal, <code>applyStoredModel()</code> resets <code>selectedModel</code> to <code>""</code> without checking whether <code>customMode</code> is active. If the user is mid-typing a custom model ID, their input is discarded silently.</p>
+      </div>
+
+      <!-- Finding P1 -->
+      <div class="finding finding-p1">
+        <div class="finding-header">
+          <span class="badge badge-p1">P1</span>
+          <span class="finding-title">Breaking API change: field removed without migration</span>
+          <span class="file-ref">app/domain/models.py:43</span>
+          <div class="actions">
+            <button class="btn btn-ghost">✎ Edit comment</button>
+            <button class="btn btn-stage">+ Add to review</button>
+            <button class="btn btn-warn">⚠ Request changes</button>
+          </div>
+        </div>
+        <p class="finding-desc">The <code>is_draft</code> field is added with a default of <code>False</code>, but existing cache entries serialized before this commit will not contain the key. <code>_cache.get_prs()</code> returns raw dicts — callers that access <code>pr["is_draft"]</code> will raise <code>KeyError</code> on stale cache.</p>
+      </div>
+
+      <!-- Finding P3 -->
+      <div class="finding finding-p3">
+        <div class="finding-header">
+          <span class="badge badge-p3">P3</span>
+          <span class="finding-title">No loading state on initial PR list fetch</span>
+          <span class="file-ref">frontend/src/components/PRList.svelte:12</span>
+          <div class="actions">
+            <button class="btn btn-ghost">✎ Edit comment</button>
+            <button class="btn btn-stage">+ Add to review</button>
+            <button class="btn btn-accent">↗ Publish</button>
+          </div>
+        </div>
+        <p class="finding-desc">When <code>loadPRs()</code> is called on mount, there is no spinner or skeleton state — the list area is blank until data arrives. On slow connections this creates a confusing empty-state flash that looks like "no PRs found".</p>
+      </div>
+
+      <!-- COMMENTS TAB PREVIEW -->
+      <div style="margin-top: 24px;">
+        <div class="tabs">
+          <button class="tab">Review</button>
+          <button class="tab active">Comments</button>
+        </div>
+
+        <div class="comment-card">
+          <div class="comment-header">
+            <span class="comment-author">mbertrand</span>
+            <span class="comment-date">· 3 Jun 2026</span>
+          </div>
+          <div class="comment-file">app/adapters/vcs/github_cli_adapter.py:67</div>
+          <p class="comment-body">Shouldn't we also handle the case where <code>raw</code> is an empty string vs <code>None</code>? The current check only guards <code>None</code> but an empty string would also cause <code>json.loads("")</code> to throw a <code>JSONDecodeError</code>.</p>
+        </div>
+
+        <div class="comment-card">
+          <div class="comment-header">
+            <span class="comment-author">angelaben</span>
+            <span class="comment-date">· 3 Jun 2026 · <span style="color: var(--accent)">you</span></span>
+          </div>
+          <p class="comment-body">Good catch — the condition should be <code>if raw else []</code> which covers both <code>None</code> and empty string. Will fix.</p>
+        </div>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<div class="theme-label" id="theme-label">🌑 Dark</div>
+
+<script>
+const themes = {
+  dark:  { icon: '🌑', label: 'Dark' },
+  dim:   { icon: '🌗', label: 'Dim' },
+  light: { icon: '☀️', label: 'Light' },
+};
+
+function setTheme(name) {
+  document.documentElement.setAttribute('data-theme', name);
+  localStorage.setItem('gh-review-theme', name);
+
+  // Update toggle buttons
+  ['dark', 'dim', 'light'].forEach(t => {
+    document.getElementById('btn-' + t).classList.toggle('active', t === name);
+  });
+
+  // Update label
+  const t = themes[name];
+  document.getElementById('theme-label').textContent = t.icon + ' ' + t.label;
+}
+
+// Init from localStorage
+const saved = localStorage.getItem('gh-review-theme') || 'dark';
+setTheme(saved);
+</script>
+</body>
+</html>
