@@ -11,7 +11,7 @@
 
   onMount(async () => {
     try {
-      await loadPRs(repo.owner, repo.name);
+      await loadPRs(repo.owner, repo.name, true);
     } catch {
       error = 'Failed to load PRs';
       showToast('Failed to load PRs', 'error');
