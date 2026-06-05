@@ -4,12 +4,13 @@ import json
 import logging
 import os
 import shutil
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,9 +35,26 @@ from app.services.fix_service import FixService
 from app.services.review_service import ReviewService
 
 logging.basicConfig(level=logging.INFO)
+
+from app import log_setup  # noqa: E402  — must come after basicConfig
+if log_setup.LOG_OPS_ENABLED:
+    log_setup.setup()
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="gh-review-tool")
+
+
+@app.middleware("http")
+async def _log_http(request: Request, call_next):
+    t0 = time.monotonic()
+    response = await call_next(request)
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    logger.info(
+        "http | %s %s → %d (%.0f ms)",
+        request.method, request.url.path, response.status_code, elapsed_ms,
+    )
+    return response
 
 # --- Provider registry & availability ---
 

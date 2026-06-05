@@ -1,3 +1,6 @@
+# Local operation logs (never push — contains operational telemetry)
+.logs/
+
 # Cache
 .cache/
 
