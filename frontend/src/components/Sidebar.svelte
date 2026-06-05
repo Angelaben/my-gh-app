@@ -100,7 +100,7 @@
 <style>
   .sidebar {
     grid-area: sidebar;
-    background: rgba(18,18,26,0.7);
+    background: var(--sidebar-bg);
     backdrop-filter: var(--glass-blur);
     border-right: 1px solid var(--glass-border);
     display: flex;
@@ -169,7 +169,7 @@
     margin-bottom: 2px;
   }
   .repo-item:hover { background: var(--glass-bg); border-color: var(--glass-border); color: var(--text-primary); }
-  .repo-item.active { background: rgba(255,107,53,0.08); border-color: rgba(255,107,53,0.25); color: var(--accent); }
+  .repo-item.active { background: var(--repo-active-bg); border-color: var(--repo-active-border); color: var(--accent); }
   .repo-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .remove-btn {
     background: none; border: none; color: var(--text-muted);
