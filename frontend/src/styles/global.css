@@ -1,50 +1,140 @@
-/* ── Existing color tokens (unchanged) ── */
+/* ── Invariants — non-thémés ── */
 :root {
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #12121a;
-  --bg-tertiary: #1a1a26;
-  --bg-hover: #22222e;
-  --border: #2a2a3a;
-  --border-active: #4a4a6a;
-
-  --text-primary: #e0e0e8;
-  --text-secondary: #8888a0;
-  --text-muted: #555568;
-
-  --accent: #ff6b35;
-  --accent-hover: #ff8555;
-  --success: #4ecdc4;
-  --success-hover: #3db8b0;
-
-  --p0: #ff3b3b;
-  --p1: #ff8c42;
-  --p2: #ffd166;
-  --p3: #7ec8e3;
-
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
-
-  /* ── Glassmorphism tokens (new) ── */
-  --glass-bg: rgba(255, 255, 255, 0.06);
-  --glass-bg-hover: rgba(255, 255, 255, 0.09);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-border-hover: rgba(255, 255, 255, 0.18);
   --glass-blur: blur(12px);
-
-  /* ── Code/log contrast ── */
-  --code-bg: #16161e;
-  --code-text: #e8e8f0;
-
-  --glow-p0: 0 0 8px rgba(255, 59, 59, 0.35);
-  --glow-p1: 0 0 8px rgba(255, 140, 66, 0.25);
-  --glow-p2: 0 0 6px rgba(255, 209, 102, 0.2);
-  --glow-p3: 0 0 6px rgba(126, 200, 227, 0.2);
-  --glow-accent: 0 0 12px rgba(255, 107, 53, 0.25);
-
   --transition-fast: 150ms ease;
   --transition-base: 220ms ease;
   --radius-sm: 5px;
   --radius-md: 8px;
   --radius-lg: 12px;
+}
+
+/* ── Dark (défaut) ── */
+[data-theme="dark"] {
+  --bg-primary:   #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary:  #1a1a26;
+  --bg-hover:     #22222e;
+  --border:        #2a2a3a;
+  --border-active: #4a4a6a;
+  --text-primary:   #e0e0e8;
+  --text-secondary: #8888a0;
+  --text-muted:     #555568;
+  --accent:       #ff6b35;
+  --accent-hover: #ff8555;
+  --success:      #4ecdc4;
+  --success-hover:#3db8b0;
+  --p0: #ff3b3b; --p1: #ff8c42; --p2: #ffd166; --p3: #7ec8e3;
+  --glass-bg:          rgba(255,255,255,0.06);
+  --glass-bg-hover:    rgba(255,255,255,0.09);
+  --glass-border:      rgba(255,255,255,0.12);
+  --glass-border-hover:rgba(255,255,255,0.18);
+  --code-bg: #16161e; --code-text: #e8e8f0;
+  --glow-p0:    0 0 8px  rgba(255,59,59,0.35);
+  --glow-p1:    0 0 8px  rgba(255,140,66,0.25);
+  --glow-p2:    0 0 6px  rgba(255,209,102,0.2);
+  --glow-p3:    0 0 6px  rgba(126,200,227,0.2);
+  --glow-accent:0 0 12px rgba(255,107,53,0.25);
+  --topbar-bg:  rgba(10,10,15,0.85);
+  --sidebar-bg: rgba(18,18,26,0.7);
+  --repo-active-bg:     rgba(255,107,53,0.08);
+  --repo-active-border: rgba(255,107,53,0.25);
+}
+
+/* ── Nord — nuit polaire arctique ── */
+[data-theme="nord"] {
+  --bg-primary:   #2e3440;
+  --bg-secondary: #252b35;
+  --bg-tertiary:  #3b4252;
+  --bg-hover:     #434c5e;
+  --border:        #3b4252;
+  --border-active: #88c0d0;
+  --text-primary:   #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted:     #81a1c1;
+  --accent:       #88c0d0;
+  --accent-hover: #a3d8e8;
+  --success:      #a3be8c;
+  --success-hover:#b8d4a0;
+  --p0: #bf616a; --p1: #d08770; --p2: #ebcb8b; --p3: #81a1c1;
+  --glass-bg:          rgba(255,255,255,0.04);
+  --glass-bg-hover:    rgba(255,255,255,0.07);
+  --glass-border:      rgba(136,192,208,0.18);
+  --glass-border-hover:rgba(136,192,208,0.30);
+  --code-bg: #252b35; --code-text: #d8dee9;
+  --glow-p0:    0 0 8px  rgba(191,97,106,0.40);
+  --glow-p1:    0 0 8px  rgba(208,135,112,0.30);
+  --glow-p2:    0 0 6px  rgba(235,203,139,0.20);
+  --glow-p3:    0 0 6px  rgba(129,161,193,0.25);
+  --glow-accent:0 0 14px rgba(136,192,208,0.40);
+  --topbar-bg:  rgba(30,34,42,0.94);
+  --sidebar-bg: rgba(30,34,42,0.85);
+  --repo-active-bg:     rgba(136,192,208,0.10);
+  --repo-active-border: rgba(136,192,208,0.30);
+}
+
+/* ── Tokyo Night — néon urbain nocturne ── */
+[data-theme="tokyo"] {
+  --bg-primary:   #13141f;
+  --bg-secondary: #1e2030;
+  --bg-tertiary:  #292a3e;
+  --bg-hover:     #33354f;
+  --border:        #2f334d;
+  --border-active: #7aa2f7;
+  --text-primary:   #c0caf5;
+  --text-secondary: #7982a9;
+  --text-muted:     #565f89;
+  --accent:       #7aa2f7;
+  --accent-hover: #9ab8ff;
+  --success:      #9ece6a;
+  --success-hover:#b3e083;
+  --p0: #f7768e; --p1: #ff9e64; --p2: #e0af68; --p3: #7dcfff;
+  --glass-bg:          rgba(255,255,255,0.05);
+  --glass-bg-hover:    rgba(255,255,255,0.08);
+  --glass-border:      rgba(122,162,247,0.15);
+  --glass-border-hover:rgba(122,162,247,0.28);
+  --code-bg: #0d0e17; --code-text: #c0caf5;
+  --glow-p0:    0 0 10px rgba(247,118,142,0.45);
+  --glow-p1:    0 0 8px  rgba(255,158,100,0.30);
+  --glow-p2:    0 0 6px  rgba(224,175,104,0.25);
+  --glow-p3:    0 0 6px  rgba(125,207,255,0.25);
+  --glow-accent:0 0 16px rgba(122,162,247,0.45);
+  --topbar-bg:  rgba(11,12,20,0.94);
+  --sidebar-bg: rgba(11,12,20,0.88);
+  --repo-active-bg:     rgba(122,162,247,0.10);
+  --repo-active-border: rgba(122,162,247,0.28);
+}
+
+/* ── Gruvbox — rétro chaleureux terre ── */
+[data-theme="gruvbox"] {
+  --bg-primary:   #282828;
+  --bg-secondary: #1d2021;
+  --bg-tertiary:  #3c3836;
+  --bg-hover:     #504945;
+  --border:        #504945;
+  --border-active: #928374;
+  --text-primary:   #ebdbb2;
+  --text-secondary: #bdae93;
+  --text-muted:     #7c6f64;
+  --accent:       #fabd2f;
+  --accent-hover: #ffd15c;
+  --success:      #b8bb26;
+  --success-hover:#d4d42a;
+  --p0: #fb4934; --p1: #fe8019; --p2: #fabd2f; --p3: #83a598;
+  --glass-bg:          rgba(255,255,255,0.05);
+  --glass-bg-hover:    rgba(255,255,255,0.08);
+  --glass-border:      rgba(250,189,47,0.14);
+  --glass-border-hover:rgba(250,189,47,0.25);
+  --code-bg: #1d2021; --code-text: #ebdbb2;
+  --glow-p0:    0 0 8px  rgba(251,73,52,0.45);
+  --glow-p1:    0 0 8px  rgba(254,128,25,0.35);
+  --glow-p2:    0 0 6px  rgba(250,189,47,0.30);
+  --glow-p3:    0 0 6px  rgba(131,165,152,0.25);
+  --glow-accent:0 0 14px rgba(250,189,47,0.40);
+  --topbar-bg:  rgba(20,20,20,0.94);
+  --sidebar-bg: rgba(20,20,20,0.88);
+  --repo-active-bg:     rgba(250,189,47,0.08);
+  --repo-active-border: rgba(250,189,47,0.25);
 }
 
 /* ── Reset ── */
@@ -95,28 +185,36 @@ a:hover { text-decoration: underline; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 .btn-accent {
-  background: rgba(255, 107, 53, 0.15);
-  border-color: rgba(255, 107, 53, 0.35);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   color: var(--accent);
 }
 .btn-accent:hover {
-  background: rgba(255, 107, 53, 0.25);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   border-color: var(--accent);
   box-shadow: var(--glow-accent);
 }
 
 .btn-success {
-  background: rgba(78, 205, 196, 0.12);
-  border-color: rgba(78, 205, 196, 0.3);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
   color: var(--success);
 }
 .btn-success:hover {
-  background: rgba(78, 205, 196, 0.22);
+  background: color-mix(in srgb, var(--success) 22%, transparent);
   border-color: var(--success);
 }
 
-.btn-p0 { background: rgba(255,59,59,0.12); border-color: rgba(255,59,59,0.3); color: var(--p0); }
-.btn-p0:hover { background: rgba(255,59,59,0.22); border-color: var(--p0); box-shadow: var(--glow-p0); }
+.btn-p0 {
+  background: color-mix(in srgb, var(--p0) 12%, transparent);
+  border-color: color-mix(in srgb, var(--p0) 30%, transparent);
+  color: var(--p0);
+}
+.btn-p0:hover {
+  background: color-mix(in srgb, var(--p0) 22%, transparent);
+  border-color: var(--p0);
+  box-shadow: var(--glow-p0);
+}
 
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -129,10 +227,10 @@ a:hover { text-decoration: underline; }
   padding: 2px 6px;
   border-radius: 3px;
 }
-.badge-p0 { background: rgba(255,59,59,0.15); color: var(--p0); border: 1px solid rgba(255,59,59,0.25); }
-.badge-p1 { background: rgba(255,140,66,0.15); color: var(--p1); border: 1px solid rgba(255,140,66,0.25); }
-.badge-p2 { background: rgba(255,209,102,0.12); color: var(--p2); border: 1px solid rgba(255,209,102,0.2); }
-.badge-p3 { background: rgba(126,200,227,0.12); color: var(--p3); border: 1px solid rgba(126,200,227,0.2); }
+.badge-p0 { background: color-mix(in srgb,var(--p0) 15%,transparent); color: var(--p0); border: 1px solid color-mix(in srgb,var(--p0) 25%,transparent); }
+.badge-p1 { background: color-mix(in srgb,var(--p1) 15%,transparent); color: var(--p1); border: 1px solid color-mix(in srgb,var(--p1) 25%,transparent); }
+.badge-p2 { background: color-mix(in srgb,var(--p2) 12%,transparent); color: var(--p2); border: 1px solid color-mix(in srgb,var(--p2) 22%,transparent); }
+.badge-p3 { background: color-mix(in srgb,var(--p3) 12%,transparent); color: var(--p3); border: 1px solid color-mix(in srgb,var(--p3) 22%,transparent); }
 
 /* ── Spinner ── */
 @keyframes spin { to { transform: rotate(360deg); } }

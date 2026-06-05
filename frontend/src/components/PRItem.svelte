@@ -51,14 +51,14 @@
     border-radius: 3px; flex-shrink: 0; letter-spacing: 0.04em;
   }
   .status-draft {
-    background: rgba(85,85,104,0.2);
+    background: color-mix(in srgb, var(--text-muted) 14%, transparent);
     color: var(--text-muted);
-    border: 1px solid rgba(85,85,104,0.35);
+    border: 1px solid color-mix(in srgb, var(--text-muted) 28%, transparent);
   }
   .status-ready {
-    background: rgba(78,205,196,0.12);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: var(--success);
-    border: 1px solid rgba(78,205,196,0.25);
+    border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
   }
   .pr-number { font-size: 11px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
   .pr-title { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

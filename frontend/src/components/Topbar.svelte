@@ -11,6 +11,7 @@
     showToast,
     type ProvidersStatus,
   } from '../stores/ui';
+  import { theme, THEMES } from '../stores/theme';
 
   const PROVIDER_PICKED_KEY = 'gh_review_provider_picked';
 
@@ -246,6 +247,20 @@
       </select>
     {/if}
   </div>
+
+  <div class="theme-picker">
+    {#each THEMES as t}
+      <button
+        class="tp-btn"
+        class:active={$theme === t.id}
+        onclick={() => theme.set(t.id)}
+        title={t.label}
+        style="--dot: {t.accent}"
+      >
+        <span class="tp-dot"></span>{t.label}
+      </button>
+    {/each}
+  </div>
 </header>
 
 <style>
@@ -256,7 +271,7 @@
     align-items: center;
     gap: 0;
     padding: 0 20px;
-    background: rgba(10, 10, 15, 0.85);
+    background: var(--topbar-bg);
     backdrop-filter: var(--glass-blur);
     border-bottom: 1px solid var(--glass-border);
     position: sticky;
@@ -391,4 +406,40 @@
   }
   .model-input::placeholder { color: var(--text-muted); }
   .model-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,107,53,0.15); }
+
+  .theme-picker {
+    margin-left: 14px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 3px 4px;
+  }
+  .tp-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 14px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    transition: background var(--transition-fast), color var(--transition-fast);
+  }
+  .tp-btn:hover { color: var(--text-primary); background: var(--glass-bg-hover); }
+  .tp-btn.active { color: var(--text-primary); background: var(--glass-bg-hover); }
+  .tp-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--dot);
+    flex-shrink: 0;
+  }
 </style>
