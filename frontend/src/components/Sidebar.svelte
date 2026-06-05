@@ -23,9 +23,11 @@
   }
 
   async function handleAdd(fullName: string) {
-    const trimmed = fullName.trim();
+    let trimmed = fullName.trim();
+    const urlMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+\/[^/?#]+)/);
+    if (urlMatch) trimmed = urlMatch[1];
     if (!/^[^/]+\/[^/]+$/.test(trimmed)) {
-      showToast('Use format: owner/repo', 'error');
+      showToast('Use format: owner/repo or https://github.com/owner/repo', 'error');
       return;
     }
     try {
@@ -61,7 +63,7 @@
       <input
         class="search-input"
         type="text"
-        placeholder="org/repo or search…"
+        placeholder="org/repo, URL or search…"
         bind:value={searchQuery}
         onkeydown={(e) => e.key === 'Enter' && handleSearch()}
         onfocus={() => { if (searchQuery.length >= 2) showResults = true; }}

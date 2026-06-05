@@ -30,7 +30,9 @@
     {#if !$activeRepo}
       <EmptyState />
     {:else if !$activePR}
-      <PRList repo={$activeRepo} />
+      {#key $activeRepo.full_name}
+        <PRList repo={$activeRepo} />
+      {/key}
     {:else}
       <PRDetail pr={$activePR} repo={$activeRepo} />
     {/if}
