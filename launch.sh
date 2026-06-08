@@ -81,10 +81,10 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 tmux new-session -d -s "$SESSION" -c "$ROOT" -n app \
-  "AI_PROVIDER='$PROVIDER' uv run uvicorn app.main:app --reload --port '$PORT'"
+  "env AI_PROVIDER=$PROVIDER uv run uvicorn app.main:app --reload --port $PORT"
 
 tmux split-window -h -t "$SESSION:app" -c "$ROOT/frontend" \
-  "API_PORT='$PORT' npm run dev"
+  "env API_PORT=$PORT npm run dev"
 
 tmux select-pane -t "$SESSION:app.0"
 
