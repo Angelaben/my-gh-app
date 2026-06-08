@@ -14,40 +14,71 @@
   let findings = $state<Finding[]>([]);
   let chunkLog = $state('');
   let errorMsg = $state('');
-  let lastStep = $state('');
   let warnings = $state<string[]>([]);
   let showWarnings = $state(false);
   let cleanup: (() => void) | null = null;
 
-  /** Extract a human-readable step from a raw opencode output line. */
-  function extractStep(text: string): string | null {
-    const line = text.trim();
-    if (!line || line.startsWith('{') || line.startsWith('[')) return null;  // skip JSON
-    // Opencode step lines: "> build · claude-sonnet-4.6", "✓ read file", etc.
-    if (/^[>✓✗·]/.test(line)) return line;
-    // Tool calls: "Reading file app/main.py", "Searching for ..."
-    if (/^(Reading|Writing|Searching|Running|Executing|Editing|Analyzing)\b/i.test(line)) return line;
-    // Substantial prose lines (AI thinking/output)
-    if (line.length > 20 && line.length < 120 && !/^\s*[{}[\]",]/.test(line)) return line;
-    return null;
-  }
+  // Progress tracking
+  let chunkCount = $state(0);
+  let totalBytes = $state(0);
+  let elapsedSec = $state(0);
+  let _startTime = 0;
+  let _timerId: ReturnType<typeof setInterval> | null = null;
+
+  // Smooth asymptotic progress: 0 → 90% over time, jumps to 100% when done.
+  // 1 - e^(-t/45) reaches ~50% at 31s, ~86% at 90s — feels deterministic.
+  const progressPct = $derived(
+    status === 'done' || status === 'error'
+      ? 100
+      : Math.min(90, (1 - Math.exp(-elapsedSec / 45)) * 100)
+  );
+
+  // Phase detected from the tail of accumulated output.
+  const phaseLabel = $derived(
+    chunkCount === 0
+      ? 'Waiting for first response…'
+      : /"findings"/.test(chunkLog.slice(-300)) || /^\s*\[/.test(chunkLog.slice(-60))
+        ? 'Generating review…'
+        : /^[>✓✗]|\b(Reading|Writing|Searching|Executing)\b/m.test(chunkLog.slice(-400))
+          ? 'Reading context…'
+          : 'Analyzing diff…'
+  );
+
+  const kbReceived = $derived((totalBytes / 1024).toFixed(1));
+  const elapsedLabel = $derived(
+    elapsedSec < 60
+      ? `${Math.floor(elapsedSec)}s`
+      : `${Math.floor(elapsedSec / 60)}m${Math.floor(elapsedSec % 60)}s`
+  );
 
   onMount(() => {
     cleanup = connectReviewStream(repo.owner, repo.name, pr.number, handleEvent, rerun, $selectedModel || undefined);
   });
 
-  onDestroy(() => cleanup?.());
+  onDestroy(() => {
+    cleanup?.();
+    if (_timerId !== null) clearInterval(_timerId);
+  });
+
+  function _startTimer() {
+    if (_timerId !== null) return;
+    _startTime = Date.now();
+    _timerId = setInterval(() => { elapsedSec = (Date.now() - _startTime) / 1000; }, 500);
+  }
+
+  function _stopTimer() {
+    if (_timerId !== null) { clearInterval(_timerId); _timerId = null; }
+    elapsedSec = (Date.now() - _startTime) / 1000;
+  }
 
   function handleEvent(event: SSEReviewEvent) {
     if (event.type === 'chunk') {
-      status = 'streaming';
+      if (status === 'connecting') { status = 'streaming'; _startTimer(); }
+      chunkCount++;
+      totalBytes += event.text.length;
       chunkLog += event.text;
-      // Update live step from any meaningful line in this chunk
-      for (const line of event.text.split('\n')) {
-        const step = extractStep(line);
-        if (step) lastStep = step;
-      }
     } else if (event.type === 'result') {
+      _stopTimer();
       findings = event.review.findings;
       cachedReview.set(event.review);
       status = 'done';
@@ -55,8 +86,9 @@
     } else if (event.type === 'warning') {
       warnings = [...warnings, ...event.lines];
     } else if (event.type === 'done') {
-      if (status !== 'done') { status = 'done'; oncomplete?.(); }
+      if (status !== 'done') { _stopTimer(); status = 'done'; oncomplete?.(); }
     } else if (event.type === 'error') {
+      _stopTimer();
       errorMsg = event.message;
       status = 'error';
       showToast(event.message, 'error');
@@ -70,7 +102,7 @@
   const providerLabel = $derived(PROVIDER_LABELS[$aiProvider] ?? ($aiProvider || 'AI provider'));
   const statusLabel = $derived<Record<Status, string>>({
     connecting: `Connecting to ${providerLabel}…`,
-    streaming: 'Analyzing diff…',
+    streaming: 'Streaming…',
     done: 'Review complete',
     error: 'Review failed',
   });
@@ -90,10 +122,10 @@
       {/if}
       <div class="status-text">
         <span class="status-label">{statusLabel[status]}</span>
-        {#if status === 'streaming' && lastStep}
-          <span class="status-step" title={lastStep}>{lastStep}</span>
-        {:else if status === 'connecting'}
-          <span class="status-step">Waiting for response…</span>
+        {#if status === 'connecting' || status === 'streaming'}
+          <span class="status-step">
+            {phaseLabel}{#if chunkCount > 0} · {chunkCount} chunks · {kbReceived} KB · {elapsedLabel}{/if}
+          </span>
         {/if}
       </div>
     </div>
@@ -131,10 +163,10 @@
     </div>
   </div>
 
-  {#if status === 'connecting' || status === 'streaming'}
-    <div class="progress-bar"><div class="progress-fill indeterminate"></div></div>
-  {:else if status === 'done'}
-    <div class="progress-bar"><div class="progress-fill full"></div></div>
+  {#if status !== 'error'}
+    <div class="progress-bar">
+      <div class="progress-fill" style="width: {progressPct}%" class:done={status === 'done'}></div>
+    </div>
   {/if}
 
   {#if status === 'error'}
@@ -193,14 +225,13 @@
   .finding-count { font-size: 10px; color: var(--text-muted); }
 
   .progress-bar { height: 2px; background: var(--border); overflow: hidden; border-left: 1px solid rgba(255,107,53,0.15); border-right: 1px solid rgba(255,107,53,0.15); }
-  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); }
-  .progress-fill.full { width: 100%; background: var(--success); transition: background 0.4s; }
-
-  @keyframes indeterminate {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(400%); }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    transition: width 0.6s ease, background 0.4s;
+    min-width: 2px;
   }
-  .indeterminate { width: 25%; animation: indeterminate 1.4s ease infinite; }
+  .progress-fill.done { background: var(--success); }
 
   .findings-list {
     border: 1px solid var(--glass-border); border-top: none;
