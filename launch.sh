@@ -80,11 +80,14 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exec tmux attach -t "$SESSION"
 fi
 
-tmux new-session -d -s "$SESSION" -c "$ROOT" -n app \
-  "env AI_PROVIDER=$PROVIDER uv run uvicorn app.main:app --reload --port $PORT"
+BACKEND_CMD="AI_PROVIDER=${PROVIDER} uv run uvicorn app.main:app --reload --port ${PORT}"
+FRONTEND_CMD="API_PORT=${PORT} npm run dev"
 
-tmux split-window -h -t "$SESSION:app" -c "$ROOT/frontend" \
-  "env API_PORT=$PORT npm run dev"
+tmux new-session -d -s "$SESSION" -c "$ROOT" -n app
+tmux send-keys -t "$SESSION:app" "$BACKEND_CMD" Enter
+
+tmux split-window -h -t "$SESSION:app" -c "$ROOT/frontend"
+tmux send-keys -t "$SESSION:app.1" "$FRONTEND_CMD" Enter
 
 tmux select-pane -t "$SESSION:app.0"
 
