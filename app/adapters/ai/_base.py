@@ -289,6 +289,8 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
 
             stdout_done = False
             stderr_done = False
+            total_stdout_bytes = 0
+            _logged_kb = 0   # last KB boundary we logged a progress line for
 
             while not (stdout_done and stderr_done):
                 item = await mux.get()
@@ -298,6 +300,23 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                     decoded = item[1].decode()
                     output_lines += 1
                     stdout_capture.append(decoded)
+                    total_stdout_bytes += len(decoded)
+                    # Log arrival of the first chunk (shows how long startup took).
+                    if output_lines == 1:
+                        logger.info(
+                            "%s | first chunk | elapsed=%.1fs",
+                            self.cli_name, time.monotonic() - t_start,
+                        )
+                    # Log a brief progress line each time we cross a new KB boundary
+                    # so the backend operator can see that data is flowing.
+                    current_kb = total_stdout_bytes // 1024
+                    if current_kb > _logged_kb:
+                        _logged_kb = current_kb
+                        logger.info(
+                            "%s | streaming | lines=%d kb=%d elapsed=%.1fs",
+                            self.cli_name, output_lines, current_kb,
+                            time.monotonic() - t_start,
+                        )
                     logger.debug("%s | stdout | %s", self.cli_name, decoded.rstrip())
                     yield decoded
                 elif tag == _MUX_PROGRESS:
