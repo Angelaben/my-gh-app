@@ -566,6 +566,18 @@ class TestParseReviewOutput:
         )
         assert review.summary == "s"
 
+    def test_parses_confidence(self):
+        review = parse_review_output(
+            '{"summary": "ok", "findings": ['
+            '{"criticality": "P1", "title": "a", "description": "d", "confidence": "HIGH"},'
+            '{"criticality": "P2", "title": "b", "description": "d", "confidence": "maybe"},'
+            '{"criticality": "P3", "title": "c", "description": "d"}]}',
+            provider="fake",
+        )
+        assert review.findings[0].confidence == "high"
+        assert review.findings[1].confidence is None  # unknown value normalized away
+        assert review.findings[2].confidence is None
+
 
 class TestParseAnalyzeOutput:
     def test_parses_array(self):

@@ -20,7 +20,9 @@ Analyze the attached diff and provide a code review. For each issue found, class
 - P3: Suggestion - Nice-to-have, optional improvement
 
 Return your response as a JSON object with this exact structure:
-{{"summary": "Brief overall assessment", "findings": [{{"criticality": "P0", "title": "Short title", "description": "Detailed explanation", "file": "path/to/file.py or null", "line": "line number or range (e.g. 42 or 42-50) — required when file is not null, otherwise null", "suggestion": "Suggested fix if applicable"}}]}}
+{{"summary": "Brief overall assessment", "findings": [{{"criticality": "P0", "confidence": "high | medium | low — how confident you are this is a real issue", "title": "Short title", "description": "Detailed explanation", "file": "path/to/file.py or null", "line": "line number or range (e.g. 42 or 42-50) — required when file is not null, otherwise null", "suggestion": "Suggested fix if applicable"}}]}}
+
+Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance — use the criticality and confidence fields so findings can be ranked and filtered downstream.
 
 IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
 
@@ -38,9 +40,12 @@ Do NOT run tests or build commands — just make the code changes."""
 
 ANALYZE_PROMPT = (
     "Analyze the comments from PR #{pr_number} in {repo_full_name} attached below.\n"
+    "Each comment is tagged with a numeric id ([id=N]).\n"
     "For each comment, assess criticality (P0-P3), validity (true/false), interest "
     "(high/medium/low), and provide a summary.\n"
-    'Return a JSON array: [{{"author": "username", "criticality": "P0", "valid": true, '
-    '"interest": "high", "summary": "Brief analysis", "original_body": "first 100 chars"}}]\n'
+    'Return a JSON array: [{{"id": 0, "author": "username", "criticality": "P0", '
+    '"valid": true, "interest": "high", "summary": "Brief analysis", '
+    '"original_body": "first 100 chars"}}]\n'
+    "The id field MUST echo the [id=N] tag of the comment being analyzed.\n"
     "IMPORTANT: Return ONLY the JSON array, no markdown fences, no extra text."
 )

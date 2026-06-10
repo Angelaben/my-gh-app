@@ -419,7 +419,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
             return []
 
         comments_text = "\n\n".join(
-            f"Comment by {c.author}:\n{c.body}" for c in comments
+            f"Comment [id={c.id}] by {c.author}:\n{c.body}" for c in comments
         )
         message = self.analyze_prompt.format(
             pr_number=pr_number, repo_full_name=repo_full_name

@@ -88,6 +88,7 @@ class JsonFileCache(CachePort):
                 file=f.get("file"),
                 line=f.get("line"),
                 suggestion=f.get("suggestion"),
+                confidence=f.get("confidence"),
             )
             for f in data.get("findings", [])
         ]
@@ -111,6 +112,7 @@ class JsonFileCache(CachePort):
                     "file": f.file,
                     "line": f.line,
                     "suggestion": f.suggestion,
+                    "confidence": f.confidence,
                 }
                 for f in review.findings
             ],

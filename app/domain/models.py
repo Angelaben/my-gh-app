@@ -10,6 +10,7 @@ class Finding:
     file: str | None = None
     line: int | None = None
     suggestion: str | None = None
+    confidence: str | None = None  # high | medium | low — model's own confidence
 
 
 @dataclass

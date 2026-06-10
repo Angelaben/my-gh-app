@@ -519,6 +519,7 @@ def _serialize_review(review) -> dict:
                 "file": f.file,
                 "line": f.line,
                 "suggestion": f.suggestion,
+                "confidence": f.confidence,
             }
             for f in review.findings
         ],

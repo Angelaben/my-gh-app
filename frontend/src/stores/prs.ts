@@ -82,11 +82,16 @@ export async function analyzeComments(owner: string, repo: string, prNumber: num
     signal,
   );
   const authorStr = (author: string | { login: string }) => typeof author === 'string' ? author : author.login;
-  const analysisMap = new Map(data.analysis.map((a) => [a.author, a]));
+  // The backend tags each comment with its index as [id=N]; prefer that exact
+  // mapping and fall back to author matching for models that omit the id.
+  const analysisById = new Map(
+    data.analysis.filter((a) => typeof a.id === 'number').map((a) => [a.id as number, a]),
+  );
+  const analysisByAuthor = new Map(data.analysis.map((a) => [a.author, a]));
   comments.set(
     data.comments.map((c, i) => {
       const raw = normalizeComment(c, i);
-      const analysis = analysisMap.get(authorStr(c.author));
+      const analysis = analysisById.get(i) ?? analysisByAuthor.get(authorStr(c.author));
       if (analysis) {
         raw.analysis = {
           valid: analysis.valid,
@@ -219,6 +224,7 @@ interface RawComment {
 }
 
 interface RawAnalysis {
+  id?: number;
   author: string;
   criticality: string;
   valid: boolean;

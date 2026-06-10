@@ -20,6 +20,17 @@ def _parse_line(val: object) -> int | None:
     return int(m.group()) if m else None
 
 
+_CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
+
+
+def _parse_confidence(val: object) -> str | None:
+    """Normalize a confidence value; anything outside high/medium/low → None."""
+    if val is None:
+        return None
+    level = str(val).strip().lower()
+    return level if level in _CONFIDENCE_LEVELS else None
+
+
 def parse_review_output(output: str, *, provider: str) -> Review:
     """Parse raw AI output into a Review.
 
@@ -41,6 +52,7 @@ def parse_review_output(output: str, *, provider: str) -> Review:
                     file=f.get("file"),
                     line=_parse_line(f.get("line")),
                     suggestion=f.get("suggestion"),
+                    confidence=_parse_confidence(f.get("confidence")),
                 )
                 for f in data.get("findings", [])
             ]
