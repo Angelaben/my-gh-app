@@ -105,6 +105,11 @@
 >
   <div class="finding-header">
     <span class="badge badge-{finding.priority.toLowerCase()}">{finding.priority}</span>
+    {#if finding.confidence}
+      <span class="badge confidence confidence-{finding.confidence}" title="Model confidence">
+        {finding.confidence}
+      </span>
+    {/if}
     <span class="finding-title">{finding.title}</span>
     {#if finding.file}
       <span class="file-ref" class:no-line={!finding.line}>
@@ -208,6 +213,10 @@
   :global(.finding-p2):hover { border-color: rgba(255,209,102,0.2); box-shadow: var(--glow-p2); }
   :global(.finding-p3):hover { border-color: rgba(126,200,227,0.2); box-shadow: var(--glow-p3); }
   .finding-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .confidence { text-transform: uppercase; font-size: 9px; letter-spacing: 0.05em; }
+  .confidence-high { color: rgb(120, 220, 160); border: 1px solid rgba(80, 200, 120, 0.45); }
+  .confidence-medium { color: rgb(255, 209, 102); border: 1px solid rgba(255, 209, 102, 0.4); }
+  .confidence-low { color: var(--text-muted); border: 1px solid var(--glass-border); }
   .finding-title { font-size: 12px; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
   .file-ref { font-size: 10px; color: var(--text-muted); font-style: italic; white-space: nowrap; }
   .file-ref.no-line { color: rgb(240, 180, 80); }

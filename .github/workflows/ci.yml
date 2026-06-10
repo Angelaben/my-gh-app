@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Lint
+        run: uv run ruff check .
+
       - name: Run tests
         run: uv run pytest --tb=short -q
 

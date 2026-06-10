@@ -52,6 +52,24 @@ class TestReview:
     def test_none_when_missing(self, cache: JsonFileCache):
         assert cache.get_review("acme/backend", 42) is None
 
+    def test_head_sha_and_created_at_roundtrip(self, cache: JsonFileCache):
+        review = Review(
+            summary="LGTM",
+            findings=[],
+            head_sha="abc123",
+            created_at="2026-06-10T12:00:00+00:00",
+        )
+        cache.save_review("acme/backend", 42, review)
+        loaded = cache.get_review("acme/backend", 42)
+        assert loaded.head_sha == "abc123"
+        assert loaded.created_at == "2026-06-10T12:00:00+00:00"
+
+    def test_head_sha_defaults_to_none_for_legacy_entries(self, cache: JsonFileCache):
+        cache.save_review("acme/backend", 42, Review(summary="old", findings=[]))
+        loaded = cache.get_review("acme/backend", 42)
+        assert loaded.head_sha is None
+        assert loaded.created_at is None
+
     def test_save_and_retrieve(self, cache: JsonFileCache):
         review = Review(
             summary="LGTM",

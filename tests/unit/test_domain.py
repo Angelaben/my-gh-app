@@ -1,6 +1,5 @@
 """Tests for domain models and exceptions."""
-import pytest
-from app.domain.models import Finding, Review, Repo, PR, Comment, FixResult
+from app.domain.models import Finding, Review, Repo, Comment, FixResult
 from app.domain.exceptions import ProviderError, VCSError, CacheError, WorktreeError
 
 

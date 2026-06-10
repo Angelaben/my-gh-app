@@ -24,12 +24,16 @@ export interface Finding {
   file?: string;
   line?: number;
   suggestion?: string;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface Review {
   summary?: string;
   findings: Finding[];
   raw_output?: string;
+  head_sha?: string;
+  created_at?: string;
+  stale?: boolean;
 }
 
 export interface CommentAnalysis {

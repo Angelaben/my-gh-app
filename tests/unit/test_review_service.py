@@ -2,7 +2,7 @@
 import asyncio
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.domain.models import Finding, Review
 from app.ports.ai_provider import ReviewChunkEvent, ReviewResultEvent, ReviewWarningEvent
@@ -344,6 +344,160 @@ class TestStreamReviewSplit:
         assert max_in_flight <= 2, f"semaphore breached: max_in_flight={max_in_flight}"
         # Sanity: we did actually overlap (otherwise the cap test is vacuous).
         assert max_in_flight >= 2
+
+
+class TestIgnoredFiles:
+    async def test_ignored_files_are_excluded_and_warned(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "10000")
+        vcs_port.get_diff.return_value = (
+            "diff --git a/app.py b/app.py\n" + "x" * 50 + "\n"
+            "diff --git a/package-lock.json b/package-lock.json\n" + "y" * 50 + "\n"
+        )
+        seen_diffs: list[str] = []
+
+        async def mock_stream(repo, pr, diff, model=None):
+            seen_diffs.append(diff)
+            yield ReviewResultEvent(_make_review("ok"))
+
+        ai_provider.stream_review = mock_stream
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        assert len(seen_diffs) == 1
+        assert "app.py" in seen_diffs[0]
+        assert "package-lock.json" not in seen_diffs[0]
+        warnings = [e for e in events if isinstance(e, ReviewWarningEvent)]
+        flat = " ".join(line for w in warnings for line in w.lines)
+        assert "package-lock.json" in flat
+
+    async def test_all_files_ignored_short_circuits(
+        self, service, ai_provider, vcs_port, cache_port
+    ):
+        vcs_port.get_diff.return_value = (
+            "diff --git a/uv.lock b/uv.lock\n" + "y" * 50 + "\n"
+        )
+        ai_provider.stream_review = MagicMock(
+            side_effect=AssertionError("AI must not be called")
+        )
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results) == 1
+        assert results[0].review.findings == []
+        assert "nothing to review" in results[0].review.summary
+        cache_port.save_review.assert_called_once()
+
+    async def test_custom_globs_override_defaults(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_IGNORE_GLOBS", "")  # disable filtering
+        vcs_port.get_diff.return_value = (
+            "diff --git a/package-lock.json b/package-lock.json\n" + "y" * 50 + "\n"
+        )
+        seen_diffs: list[str] = []
+
+        async def mock_stream(repo, pr, diff, model=None):
+            seen_diffs.append(diff)
+            yield ReviewResultEvent(_make_review("ok"))
+
+        ai_provider.stream_review = mock_stream
+        _ = [e async for e in service.stream_review("acme/backend", 1)]
+        assert "package-lock.json" in seen_diffs[0]
+
+
+class TestDedupeFindings:
+    def test_merged_duplicate_findings_are_deduped(self):
+        from app.services.review_service import _dedupe_findings
+
+        findings = [
+            Finding(priority="P2", title="SQL injection", description="a", file="db.py", line=10),
+            Finding(priority="P0", title="sql injection ", description="b", file="db.py", line=10),
+            Finding(priority="P2", title="SQL injection", description="c", file="other.py", line=10),
+        ]
+        deduped = _dedupe_findings(findings)
+        assert len(deduped) == 2
+        assert deduped[0].priority == "P0"  # highest severity kept
+        assert deduped[1].file == "other.py"
+
+    def test_distinct_findings_preserved(self):
+        from app.services.review_service import _dedupe_findings
+
+        findings = [
+            Finding(priority="P1", title="A", description="", file="x.py", line=1),
+            Finding(priority="P1", title="B", description="", file="x.py", line=1),
+            Finding(priority="P1", title="A", description="", file="x.py", line=2),
+        ]
+        assert len(_dedupe_findings(findings)) == 3
+
+
+class TestReviewProvenance:
+    """Head-SHA stamping on fresh reviews and the staleness check."""
+
+    async def test_fresh_review_is_stamped_with_head_sha(
+        self, service, ai_provider, cache_port, vcs_port
+    ):
+        vcs_port.get_pr_head_sha.return_value = "abc123"
+        review = _make_review("fresh")
+
+        async def mock_stream(repo, pr, diff, model=None):
+            yield ReviewResultEvent(review)
+
+        ai_provider.stream_review = mock_stream
+        result = await service.get_or_run_review("acme/backend", 1)
+        assert result.head_sha == "abc123"
+        assert result.created_at is not None
+
+    async def test_split_review_is_stamped_with_head_sha(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "100")
+        vcs_port.get_pr_head_sha.return_value = "def456"
+        vcs_port.get_diff.return_value = (
+            "diff --git a/a.py b/a.py\n" + "a" * 80 + "\n"
+            "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
+        )
+
+        async def mock_stream(repo, pr, sub_diff, model=None):
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        merged = [e for e in events if isinstance(e, ReviewResultEvent)][0].review
+        assert merged.head_sha == "def456"
+
+    async def test_sha_lookup_failure_does_not_break_review(
+        self, service, ai_provider, vcs_port
+    ):
+        vcs_port.get_pr_head_sha.side_effect = RuntimeError("gh offline")
+        review = _make_review("ok")
+
+        async def mock_stream(repo, pr, diff, model=None):
+            yield ReviewResultEvent(review)
+
+        ai_provider.stream_review = mock_stream
+        result = await service.get_or_run_review("acme/backend", 1)
+        assert result.summary == "ok"
+        assert result.head_sha is None
+
+    def test_stale_when_sha_differs(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.return_value = "new-sha"
+        review = Review(summary="s", findings=[], head_sha="old-sha")
+        assert service.is_review_stale("acme/backend", 1, review) is True
+
+    def test_not_stale_when_sha_matches(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.return_value = "same"
+        review = Review(summary="s", findings=[], head_sha="same")
+        assert service.is_review_stale("acme/backend", 1, review) is False
+
+    def test_not_stale_when_review_has_no_sha(self, service, vcs_port):
+        review = Review(summary="s", findings=[])
+        assert service.is_review_stale("acme/backend", 1, review) is False
+        vcs_port.get_pr_head_sha.assert_not_called()
+
+    def test_not_stale_when_lookup_fails(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.side_effect = RuntimeError("gh offline")
+        review = Review(summary="s", findings=[], head_sha="old-sha")
+        assert service.is_review_stale("acme/backend", 1, review) is False
 
 
 class TestReadIntEnv:

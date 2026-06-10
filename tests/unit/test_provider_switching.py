@@ -1,5 +1,5 @@
 """Tests for runtime AI provider switching: SwitchableAIProvider + endpoints."""
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient

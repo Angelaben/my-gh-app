@@ -1,7 +1,7 @@
 """VCS port — GitHub operations (PRs, diffs, comments)."""
 from abc import ABC, abstractmethod
 
-from app.domain.models import PR, Comment
+from app.domain.models import PR
 
 
 class VCSPort(ABC):
@@ -43,6 +43,11 @@ class VCSPort(ABC):
     @abstractmethod
     def get_pr_head_branch(self, repo_full_name: str, pr_number: int) -> str:
         """Return the head branch name for a PR."""
+        ...
+
+    @abstractmethod
+    def get_pr_head_sha(self, repo_full_name: str, pr_number: int) -> str:
+        """Return the head commit SHA for a PR."""
         ...
 
     @abstractmethod
