@@ -46,6 +46,11 @@ class VCSPort(ABC):
         ...
 
     @abstractmethod
+    def get_pr_head_sha(self, repo_full_name: str, pr_number: int) -> str:
+        """Return the head commit SHA for a PR."""
+        ...
+
+    @abstractmethod
     def search_repos(self, org: str, query: str = "") -> list[dict]:
         """Search repositories in an organization."""
         ...

@@ -7,7 +7,10 @@ Reviews are merged into a single Review with a structured summary.
 import asyncio
 import logging
 import os
+import time
+from collections import Counter
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 
 from app.domain.models import Finding, Review
 from app.ports.ai_provider import (
@@ -19,6 +22,7 @@ from app.ports.ai_provider import (
 )
 from app.ports.cache_port import CachePort
 from app.ports.vcs_port import VCSPort
+from app.services import metrics
 from app.services._diff_splitter import Chunk, pack_chunks, split_unified_diff
 
 logger = logging.getLogger(__name__)
@@ -48,7 +52,9 @@ class ReviewService:
         self, repo_full_name: str, pr_number: int, model: str | None = None
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         """Stream review events. Splits & merges large diffs transparently."""
+        t0 = time.monotonic()
         diff = self._vcs.get_diff(repo_full_name, pr_number)
+        head_sha = self._fetch_head_sha(repo_full_name, pr_number)
         max_chars = _read_int_env("REVIEW_DIFF_MAX_CHARS", _DEFAULT_MAX_CHARS)
         max_concurrency = _read_int_env("REVIEW_MAX_CONCURRENCY", _DEFAULT_MAX_CONCURRENCY)
 
@@ -57,14 +63,79 @@ class ReviewService:
                 repo_full_name, pr_number, diff, model=model
             ):
                 if isinstance(event, ReviewResultEvent):
-                    self._cache.save_review(repo_full_name, pr_number, event.review)
+                    self._finalize_review(
+                        event.review, repo_full_name, pr_number, head_sha,
+                        t0=t0, model=model, diff_chars=len(diff),
+                        chunks=1, files=1, failed_chunks=0,
+                    )
                 yield event
             return
 
         async for event in self._stream_split_review(
-            repo_full_name, pr_number, diff, model, max_chars, max_concurrency
+            repo_full_name, pr_number, diff, model, max_chars, max_concurrency,
+            head_sha=head_sha, t0=t0,
         ):
             yield event
+
+    def is_review_stale(self, repo_full_name: str, pr_number: int, review: Review) -> bool:
+        """True when the review was run against an older head commit.
+
+        Unknown (no recorded SHA, or VCS lookup failure) → False: a staleness
+        check must never block returning the cached review.
+        """
+        if not review.head_sha:
+            return False
+        current = self._fetch_head_sha(repo_full_name, pr_number)
+        return current is not None and current != review.head_sha
+
+    def _fetch_head_sha(self, repo_full_name: str, pr_number: int) -> str | None:
+        """Best-effort head SHA lookup — never raises."""
+        try:
+            sha = self._vcs.get_pr_head_sha(repo_full_name, pr_number)
+        except Exception as exc:  # noqa: BLE001 — staleness is advisory only
+            logger.warning(
+                "review-service | head sha lookup failed | repo=%s pr=#%d error=%s",
+                repo_full_name, pr_number, exc,
+            )
+            return None
+        return sha if isinstance(sha, str) and sha else None
+
+    def _finalize_review(
+        self,
+        review: Review,
+        repo_full_name: str,
+        pr_number: int,
+        head_sha: str | None,
+        *,
+        t0: float,
+        model: str | None,
+        diff_chars: int,
+        chunks: int,
+        files: int,
+        failed_chunks: int,
+    ) -> None:
+        """Stamp provenance on the review, persist it, and record run metrics."""
+        review.head_sha = head_sha
+        review.created_at = datetime.now(timezone.utc).isoformat()
+        self._cache.save_review(repo_full_name, pr_number, review)
+        counts = Counter(f.priority for f in review.findings)
+        metrics.record(
+            "review",
+            repo=repo_full_name,
+            pr=pr_number,
+            provider=getattr(self._ai, "active", None),
+            model=model,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            diff_chars=diff_chars,
+            chunks=chunks,
+            files=files,
+            failed_chunks=failed_chunks,
+            findings_total=len(review.findings),
+            findings_p0=counts.get("P0", 0),
+            findings_p1=counts.get("P1", 0),
+            findings_p2=counts.get("P2", 0),
+            findings_p3=counts.get("P3", 0),
+        )
 
     async def _stream_split_review(
         self,
@@ -74,7 +145,12 @@ class ReviewService:
         model: str | None,
         max_chars: int,
         max_concurrency: int,
+        *,
+        head_sha: str | None = None,
+        t0: float | None = None,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        if t0 is None:
+            t0 = time.monotonic()
         files = split_unified_diff(diff)
         chunks = pack_chunks(files, max_chars)
         truncated = [path for c in chunks for path in c.truncated_files]
@@ -175,7 +251,11 @@ class ReviewService:
             repo_full_name, pr_number, len(chunks),
             len(chunks) - failed_count, failed_count, len(findings),
         )
-        self._cache.save_review(repo_full_name, pr_number, merged)
+        self._finalize_review(
+            merged, repo_full_name, pr_number, head_sha,
+            t0=t0, model=model, diff_chars=len(diff),
+            chunks=len(chunks), files=len(files), failed_chunks=failed_count,
+        )
         yield ReviewResultEvent(review=merged)
 
     async def _run_review(self, repo_full_name: str, pr_number: int) -> Review:

@@ -18,6 +18,8 @@ class Review:
     findings: list[Finding]
     raw_output: str | None = None
     raw_length: int | None = None
+    head_sha: str | None = None     # PR head commit the review was run against
+    created_at: str | None = None   # ISO 8601 UTC timestamp of the run
 
 
 @dataclass

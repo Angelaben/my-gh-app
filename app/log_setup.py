@@ -30,20 +30,37 @@ _MAX_BYTES = 10 * 1024 * 1024  # 10 MB per file
 _BACKUP_COUNT = 5               # keep ops.jsonl … ops.jsonl.5
 
 
+# Attributes present on every LogRecord — anything else came in via `extra=`
+# and is emitted as a structured field (jq-queryable) alongside `msg`.
+_STANDARD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {
+    "message", "asctime", "taskName",
+}
+
+
 class _JsonLineFormatter(logging.Formatter):
-    """One compact JSON object per log record — grep- and jq-friendly."""
+    """One compact JSON object per log record — grep- and jq-friendly.
+
+    ``extra={...}`` fields passed to the logger are flattened into the JSON
+    object so callers can emit queryable structured fields. The SAFETY
+    CONTRACT above still applies to anything passed this way.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
-        return json.dumps(
-            {
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-                "ms": int(record.msecs),
-                "level": record.levelname,
-                "logger": record.name,
-                "msg": record.getMessage(),
-            },
-            ensure_ascii=False,
-        )
+        payload: dict = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
+            "ms": int(record.msecs),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        request_id = getattr(record, "request_id", None)
+        if request_id and request_id != "-":
+            payload["request_id"] = request_id
+        for key, value in record.__dict__.items():
+            if key in _STANDARD_ATTRS or key == "request_id" or key.startswith("_"):
+                continue
+            payload[key] = value
+        return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def setup() -> None:

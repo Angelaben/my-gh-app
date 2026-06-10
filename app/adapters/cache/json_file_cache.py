@@ -96,6 +96,8 @@ class JsonFileCache(CachePort):
             findings=findings,
             raw_output=data.get("raw_output"),
             raw_length=data.get("raw_length"),
+            head_sha=data.get("head_sha"),
+            created_at=data.get("created_at"),
         )
 
     def save_review(self, repo_full_name: str, pr_number: int, review: Review) -> None:
@@ -117,6 +119,10 @@ class JsonFileCache(CachePort):
             data["raw_output"] = review.raw_output
         if review.raw_length is not None:
             data["raw_length"] = review.raw_length
+        if review.head_sha is not None:
+            data["head_sha"] = review.head_sha
+        if review.created_at is not None:
+            data["created_at"] = review.created_at
         self._write_json(self._review_path(repo_full_name, pr_number), data)
 
     def clear_review(self, repo_full_name: str, pr_number: int) -> None:

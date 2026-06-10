@@ -1,0 +1,95 @@
+"""Operational metrics — one JSONL record per AI operation.
+
+Follows the same SAFETY CONTRACT as app.log_setup: only metadata (sizes,
+counts, timings, identifiers) is recorded — never diff content, review text,
+comment bodies, or raw AI output.
+
+Records land in METRICS_FILE (default ``.cache/metrics.jsonl``); the file is
+append-only and lives next to the JSON cache, so it never reaches the remote.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from collections import Counter
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_PRIORITIES = ("P0", "P1", "P2", "P3")
+
+
+def _metrics_path() -> Path:
+    return Path(os.getenv("METRICS_FILE", ".cache/metrics.jsonl"))
+
+
+def record(event: str, **fields: object) -> None:
+    """Append one metrics record. Never raises — metrics must not break a run."""
+    payload = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "event": event,
+        **fields,
+    }
+    try:
+        path = _metrics_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except OSError as exc:
+        logger.warning("metrics | write failed | error=%s", exc)
+
+
+def load(limit: int | None = None) -> list[dict]:
+    """Return parsed records, oldest first. Malformed lines are skipped."""
+    path = _metrics_path()
+    if not path.exists():
+        return []
+    records: list[dict] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    except OSError as exc:
+        logger.warning("metrics | read failed | error=%s", exc)
+        return []
+    if limit is not None:
+        return records[-limit:]
+    return records
+
+
+def summarize() -> dict:
+    """Aggregate all records for the /api/stats endpoint."""
+    records = load()
+    reviews = [r for r in records if r.get("event") == "review"]
+    durations = [r["duration_ms"] for r in reviews if isinstance(r.get("duration_ms"), (int, float))]
+    findings_by_priority = Counter()
+    for r in reviews:
+        for p in _PRIORITIES:
+            count = r.get(f"findings_{p.lower()}")
+            if isinstance(count, int):
+                findings_by_priority[p] += count
+    return {
+        "total_records": len(records),
+        "reviews": {
+            "count": len(reviews),
+            "avg_duration_ms": round(sum(durations) / len(durations)) if durations else None,
+            "total_findings": sum(findings_by_priority.values()),
+            "findings_by_priority": {p: findings_by_priority.get(p, 0) for p in _PRIORITIES},
+            "by_provider": dict(Counter(
+                str(r.get("provider")) for r in reviews if r.get("provider")
+            )),
+            "failed_chunks": sum(
+                r.get("failed_chunks", 0) for r in reviews
+                if isinstance(r.get("failed_chunks"), int)
+            ),
+        },
+        "events": dict(Counter(str(r.get("event")) for r in records)),
+        "recent": load(limit=20),
+    }

@@ -346,6 +346,76 @@ class TestStreamReviewSplit:
         assert max_in_flight >= 2
 
 
+class TestReviewProvenance:
+    """Head-SHA stamping on fresh reviews and the staleness check."""
+
+    async def test_fresh_review_is_stamped_with_head_sha(
+        self, service, ai_provider, cache_port, vcs_port
+    ):
+        vcs_port.get_pr_head_sha.return_value = "abc123"
+        review = _make_review("fresh")
+
+        async def mock_stream(repo, pr, diff, model=None):
+            yield ReviewResultEvent(review)
+
+        ai_provider.stream_review = mock_stream
+        result = await service.get_or_run_review("acme/backend", 1)
+        assert result.head_sha == "abc123"
+        assert result.created_at is not None
+
+    async def test_split_review_is_stamped_with_head_sha(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "100")
+        vcs_port.get_pr_head_sha.return_value = "def456"
+        vcs_port.get_diff.return_value = (
+            "diff --git a/a.py b/a.py\n" + "a" * 80 + "\n"
+            "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
+        )
+
+        async def mock_stream(repo, pr, sub_diff, model=None):
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        merged = [e for e in events if isinstance(e, ReviewResultEvent)][0].review
+        assert merged.head_sha == "def456"
+
+    async def test_sha_lookup_failure_does_not_break_review(
+        self, service, ai_provider, vcs_port
+    ):
+        vcs_port.get_pr_head_sha.side_effect = RuntimeError("gh offline")
+        review = _make_review("ok")
+
+        async def mock_stream(repo, pr, diff, model=None):
+            yield ReviewResultEvent(review)
+
+        ai_provider.stream_review = mock_stream
+        result = await service.get_or_run_review("acme/backend", 1)
+        assert result.summary == "ok"
+        assert result.head_sha is None
+
+    def test_stale_when_sha_differs(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.return_value = "new-sha"
+        review = Review(summary="s", findings=[], head_sha="old-sha")
+        assert service.is_review_stale("acme/backend", 1, review) is True
+
+    def test_not_stale_when_sha_matches(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.return_value = "same"
+        review = Review(summary="s", findings=[], head_sha="same")
+        assert service.is_review_stale("acme/backend", 1, review) is False
+
+    def test_not_stale_when_review_has_no_sha(self, service, vcs_port):
+        review = Review(summary="s", findings=[])
+        assert service.is_review_stale("acme/backend", 1, review) is False
+        vcs_port.get_pr_head_sha.assert_not_called()
+
+    def test_not_stale_when_lookup_fails(self, service, vcs_port):
+        vcs_port.get_pr_head_sha.side_effect = RuntimeError("gh offline")
+        review = Review(summary="s", findings=[], head_sha="old-sha")
+        assert service.is_review_stale("acme/backend", 1, review) is False
+
+
 class TestReadIntEnv:
     """The helper that parses REVIEW_DIFF_MAX_CHARS / REVIEW_MAX_CONCURRENCY."""
 

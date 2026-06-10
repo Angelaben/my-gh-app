@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -30,15 +31,33 @@ from app.ports.ai_provider import (
     ReviewStreamEvent,
     ReviewWarningEvent,
 )
+from app.request_context import request_id_var
+from app.services import metrics as metrics_store
 from app.services.comment_service import CommentService
 from app.services.fix_service import FixService
 from app.services.review_service import ReviewService
 
-logging.basicConfig(level=logging.INFO)
+_LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL, logging.INFO),
+    format="%(levelname)s %(name)s [%(request_id)s] %(message)s",
+)
 
 from app import log_setup  # noqa: E402  — must come after basicConfig
 if log_setup.LOG_OPS_ENABLED:
     log_setup.setup()
+
+
+class _RequestIdFilter(logging.Filter):
+    """Stamp every record with the current request's correlation id (or '-')."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_var.get() or "-"
+        return True
+
+
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(_RequestIdFilter())
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +73,18 @@ async def _log_http(request: Request, call_next):
         "http | %s %s → %d (%.0f ms)",
         request.method, request.url.path, response.status_code, elapsed_ms,
     )
+    return response
+
+
+@app.middleware("http")
+async def _assign_request_id(request: Request, call_next):
+    # Registered after _log_http → outermost middleware, so the id is set
+    # before any request logging. The contextvar is intentionally never
+    # reset — see app.request_context for why (SSE generators).
+    request_id = uuid.uuid4().hex[:8]
+    request_id_var.set(request_id)
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
     return response
 
 # --- Provider registry & availability ---
@@ -496,6 +527,10 @@ def _serialize_review(review) -> dict:
         result["raw_output"] = review.raw_output
     if review.raw_length:
         result["raw_length"] = review.raw_length
+    if review.head_sha:
+        result["head_sha"] = review.head_sha
+    if review.created_at:
+        result["created_at"] = review.created_at
     return result
 
 
@@ -509,8 +544,11 @@ async def run_review(
     svc: ReviewService = Depends(get_review_service),
 ):
     try:
-        review = await svc.get_or_run_review(f"{owner}/{repo}", pr_number)
-        return _serialize_review(review)
+        full_name = f"{owner}/{repo}"
+        review = await svc.get_or_run_review(full_name, pr_number)
+        result = _serialize_review(review)
+        result["stale"] = svc.is_review_stale(full_name, pr_number, review)
+        return result
     except Exception as e:
         logger.exception("run_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
         raise HTTPException(status_code=500, detail=str(e))
@@ -715,6 +753,14 @@ def remove_worktree(owner: str, repo: str, pr_number: int):
 def clear_review_cache(owner: str, repo: str, pr_number: int):
     _review_service.clear_cache(f"{owner}/{repo}", pr_number)
     return {"status": "cleared"}
+
+
+# --- Stats ---
+
+@app.get("/api/stats")
+def get_stats():
+    """Aggregated operational metrics (reviews run, durations, findings)."""
+    return metrics_store.summarize()
 
 
 # --- Static files ---
