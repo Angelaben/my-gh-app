@@ -33,6 +33,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
@@ -52,6 +53,26 @@ from app.ports.ai_provider import (
     ReviewStreamEvent,
     ReviewWarningEvent,
 )
+
+# Strip ANSI/VT100 escape sequences from a string.  OpenCode's TUI emits
+# cursor-movement and line-erase codes (e.g. \033[K, \r) even when its stderr
+# is a pipe.  Left in place they make log lines look empty in terminals and
+# prevent the info-prefix classifier from matching otherwise-valid lines.
+_ANSI_RE = re.compile(
+    r"\x1b"           # ESC
+    r"(?:"
+    r"\[[0-9;]*[A-Za-z]"    # CSI sequences: ESC [ … <letter>
+    r"|\][^\x07]*\x07"      # OSC sequences: ESC ] … BEL
+    r"|[@-_]"               # two-byte sequences: ESC <0x40-0x5F>
+    r")"
+    r"|\r"             # bare carriage-return (cursor-to-column-0)
+)
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI/VT100 escape sequences and bare carriage returns."""
+    return _ANSI_RE.sub("", text)
+
 
 # Sentinel used inside the streamed chunks to mark a stderr line so the
 # adapter's `stream_review` can split them out and emit ReviewWarningEvent.
@@ -608,7 +629,7 @@ async def _feed_stderr_to_queue(
         if not line:
             await queue.put((_MUX_STDERR_DONE, warning_lines))
             return
-        decoded = line.decode().rstrip()
+        decoded = _strip_ansi(line.decode().rstrip())
         if not decoded:
             continue
         verdict = classify(decoded)
