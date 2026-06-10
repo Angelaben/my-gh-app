@@ -33,11 +33,17 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal
+
+# Set LOG_AI_CHUNKS=1 to log the instruction prompt and each stdout chunk
+# (first 300 chars) at INFO level.  Useful for local debugging; avoid in
+# production when LOG_OPS=1 since content will land in ops.jsonl.
+_LOG_AI_CHUNKS = os.getenv("LOG_AI_CHUNKS", "").strip().lower() in {"1", "true", "yes"}
 
 from app.adapters._subprocess import clean_env
 from app.adapters.ai._parsing import parse_analyze_output, parse_review_output
@@ -223,6 +229,13 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
             "%s | starting | mode=%s cwd=%s prompt=%.1f KB model=%s",
             self.cli_name, mode, cwd or ".", prompt_kb, normalized_model or "default",
         )
+        if _LOG_AI_CHUNKS:
+            # Log the instruction (message) but NOT the context/diff so that
+            # source-code content never ends up in this log line.
+            msg_preview = message.replace("\n", "↵")
+            if len(msg_preview) > 300:
+                msg_preview = msg_preview[:300] + "…"
+            logger.info("%s | prompt | %s", self.cli_name, msg_preview)
         self.before_run(cwd=cwd, mode=mode)
 
         invocation = self.build_invocation(
@@ -317,7 +330,13 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                             self.cli_name, output_lines, current_kb,
                             time.monotonic() - t_start,
                         )
-                    logger.debug("%s | stdout | %s", self.cli_name, decoded.rstrip())
+                    if _LOG_AI_CHUNKS:
+                        preview = decoded.rstrip()
+                        if len(preview) > 300:
+                            preview = preview[:300] + "…"
+                        logger.info("%s | chunk #%d | %s", self.cli_name, output_lines, preview)
+                    else:
+                        logger.debug("%s | stdout | %s", self.cli_name, decoded.rstrip())
                     yield decoded
                 elif tag == _MUX_PROGRESS:
                     yield f"{PROGRESS_MARKER}{item[1]}"
