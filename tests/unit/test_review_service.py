@@ -2,7 +2,7 @@
 import asyncio
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.domain.models import Finding, Review
 from app.ports.ai_provider import ReviewChunkEvent, ReviewResultEvent, ReviewWarningEvent

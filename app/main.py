@@ -340,7 +340,7 @@ def search_repos(org: str, q: str = ""):
         return _vcs.search_repos(org, q)
     except Exception as e:
         logger.exception("search_repos failed | org=%s q=%s", org, q)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # --- Config & provider endpoints ---
@@ -439,7 +439,7 @@ def list_models():
         models = [line.strip() for line in result.stdout.splitlines() if line.strip()]
         return {"models": models}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # --- PR endpoints ---
@@ -475,7 +475,7 @@ def refresh_prs(owner: str, repo: str):
         return prs_dicts
     except Exception as e:
         logger.exception("refresh_prs | failed | repo=%s", full_name)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # --- PR detail ---
@@ -504,7 +504,7 @@ def get_pr_detail(owner: str, repo: str, pr_number: int):
         }
     except Exception as e:
         logger.exception("get_pr_detail | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def _serialize_review(review) -> dict:
@@ -552,7 +552,7 @@ async def run_review(
         return result
     except Exception as e:
         logger.exception("run_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/review/{owner}/{repo}/{pr_number}/rerun")
@@ -567,7 +567,7 @@ async def rerun_review(
         return _serialize_review(review)
     except Exception as e:
         logger.exception("rerun_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/review/{owner}/{repo}/{pr_number}/stream")
@@ -614,7 +614,7 @@ def publish_comment(data: PublishComment, svc: CommentService = Depends(get_comm
         return {"status": "published"}
     except Exception as e:
         logger.exception("publish_comment | failed | repo=%s pr=#%d", data.repo, data.pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/comment/inline")
@@ -626,7 +626,7 @@ def publish_inline_comment(
         return {"status": "published"}
     except Exception as e:
         logger.exception("publish_inline_comment | failed | repo=%s pr=#%d", data.repo, data.pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 _FALLBACK_WARNINGS = {
@@ -662,7 +662,7 @@ def publish_review(data: PublishReview, svc: CommentService = Depends(get_commen
         return response
     except Exception as e:
         logger.exception("publish_review | failed | repo=%s pr=#%d", data.repo, data.pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/api/comment")
@@ -672,7 +672,7 @@ def delete_comment(data: DeleteComment):
         return {"status": "deleted"}
     except Exception as e:
         logger.exception("delete_comment | failed | repo=%s id=%d", data.repo, data.comment_id)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/comments/{owner}/{repo}/{pr_number}/analyze")
@@ -686,7 +686,7 @@ async def analyze_comments(
         return await svc.analyze_comments(f"{owner}/{repo}", pr_number)
     except Exception as e:
         logger.exception("analyze_comments | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # --- Fix endpoints ---
@@ -711,12 +711,12 @@ async def push_fix(data: PushFix, svc: FixService = Depends(get_fix_service)):
     try:
         return await svc.push_fix(data.repo, data.pr_number, data.diff, data.comment_body)
     except WorktreeNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except WorktreeNoChangesError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("push_fix | failed | repo=%s pr=#%d", data.repo, data.pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/comment/fix/new-pr")
@@ -726,12 +726,12 @@ async def submit_new_pr(data: PushFix, svc: FixService = Depends(get_fix_service
             data.repo, data.pr_number, data.branch, data.diff, data.comment_body
         )
     except WorktreeNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except WorktreeNoChangesError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("submit_new_pr | failed | repo=%s pr=#%d", data.repo, data.pr_number)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # --- Worktree management ---
@@ -747,7 +747,7 @@ def remove_worktree(owner: str, repo: str, pr_number: int):
         _worktree.remove(f"{owner}/{repo}", pr_number)
         return {"status": "removed"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/api/review/{owner}/{repo}/{pr_number}/cache")

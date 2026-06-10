@@ -20,7 +20,7 @@ from app.adapters.ai._base import (
 )
 from app.adapters.ai._parsing import parse_analyze_output, parse_review_output
 from app.domain.exceptions import ProviderError
-from app.domain.models import Comment, Finding
+from app.domain.models import Comment
 from app.ports.ai_provider import (
     ReviewChunkEvent,
     ReviewResultEvent,

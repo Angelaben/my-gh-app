@@ -2,7 +2,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.domain.models import FixResult
 from app.ports.ai_provider import FixChunkEvent
 from app.services.fix_service import FixService
 

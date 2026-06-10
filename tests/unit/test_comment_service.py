@@ -2,7 +2,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.domain.models import Comment
 from app.services.comment_service import CommentService
 
 

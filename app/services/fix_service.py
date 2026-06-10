@@ -5,7 +5,7 @@ import time
 from collections.abc import AsyncGenerator
 
 from app.domain.exceptions import WorktreeNoChangesError, WorktreeNotFoundError
-from app.ports.ai_provider import AIProvider, FixChunkEvent
+from app.ports.ai_provider import AIProvider
 from app.ports.vcs_port import VCSPort
 from app.ports.worktree_port import WorktreePort
 

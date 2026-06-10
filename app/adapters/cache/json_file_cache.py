@@ -1,6 +1,6 @@
 """JSON-on-disk implementation of CachePort."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from app.domain.exceptions import CacheError

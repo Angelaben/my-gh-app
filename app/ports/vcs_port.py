@@ -1,7 +1,7 @@
 """VCS port — GitHub operations (PRs, diffs, comments)."""
 from abc import ABC, abstractmethod
 
-from app.domain.models import PR, Comment
+from app.domain.models import PR
 
 
 class VCSPort(ABC):
