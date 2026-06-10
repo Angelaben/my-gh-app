@@ -30,7 +30,22 @@ class ReviewWarningEvent:
         self.lines = lines
 
 
-ReviewStreamEvent: TypeAlias = ReviewChunkEvent | ReviewResultEvent | ReviewWarningEvent
+class ReviewProgressEvent:
+    """Real-time progress line from the AI provider's stderr (info-classified).
+
+    Emitted before and during streaming so the frontend can show live activity
+    (e.g. ``> Reading context…``, ``✓ Tool use complete``) while the model is
+    still warming up and before the first stdout chunk arrives.
+    """
+    __slots__ = ("text",)
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+ReviewStreamEvent: TypeAlias = (
+    ReviewChunkEvent | ReviewProgressEvent | ReviewResultEvent | ReviewWarningEvent
+)
 
 
 class FixChunkEvent:

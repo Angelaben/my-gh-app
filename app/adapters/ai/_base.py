@@ -47,6 +47,7 @@ from app.ports.ai_provider import (
     AIProvider,
     FixChunkEvent,
     ReviewChunkEvent,
+    ReviewProgressEvent,
     ReviewResultEvent,
     ReviewStreamEvent,
     ReviewWarningEvent,
@@ -58,6 +59,19 @@ from app.ports.ai_provider import (
 # (NULL + "STDERR" + NULL).
 STDERR_MARKER = "\x00STDERR\x00"
 STDERR_MARKER_LEN = len(STDERR_MARKER)
+
+# Sentinel for real-time stderr *progress* lines (info-classified) streamed
+# during the subprocess run so the frontend can show live activity before the
+# first stdout chunk arrives.  Shape: `\x00PROGRESS\x00<line>`.
+PROGRESS_MARKER = "\x00PROGRESS\x00"
+PROGRESS_MARKER_LEN = len(PROGRESS_MARKER)
+
+# Internal tags used by the fan-in mux queue inside stream_cli.
+_MUX_STDOUT = "stdout"
+_MUX_PROGRESS = "progress"
+_MUX_STDOUT_DONE = "stdout_done"
+_MUX_STDERR_DONE = "stderr_done"
+_MUX_TIMEOUT = "timeout"
 
 Mode = Literal["review", "analyze", "generate", "fix"]
 StderrCategory = Literal["info", "warning", "skip"]
@@ -167,12 +181,18 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         model: str | None = None,
         timeout: int = DEFAULT_REVIEW_TIMEOUT,
     ) -> AsyncGenerator[str, None]:
-        """Run the CLI and stream stdout, plus stderr lines marked with
-        :data:`STDERR_MARKER`.
+        """Run the CLI and stream stdout lines plus real-time progress markers.
 
-        The caller (an adapter method, or a module-level back-compat helper)
-        is responsible for splitting marker lines and converting them into
-        :class:`ReviewWarningEvent` / log lines.
+        Yields three kinds of chunks:
+        - plain text lines (raw stdout)
+        - ``PROGRESS_MARKER + line`` for info-classified stderr lines, emitted
+          in real time so the frontend can show live activity before the first
+          stdout chunk arrives
+        - ``STDERR_MARKER + line`` for warning-classified stderr lines, emitted
+          after the process exits (same as before)
+
+        Both stdout and stderr are read concurrently via an asyncio.Queue fan-in
+        so progress messages are not delayed by waiting for the next stdout line.
         """
         prompt = message if context is None else f"{message}\n\n---\n\n{context}"
         normalized_model = self.normalize_model(model)
@@ -193,11 +213,13 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
 
         t_start = time.monotonic()
         proc: asyncio.subprocess.Process | None = None
-        stderr_task: asyncio.Task[list[str]] | None = None
+        stdout_feeder: asyncio.Task[None] | None = None
+        stderr_feeder: asyncio.Task[None] | None = None
         stdin_task: asyncio.Task[None] | None = None
         output_lines = 0
         stdout_capture: list[str] = []
         timed_out = False
+        stderr_warning_lines: list[str] = []
         try:
             if invocation.stdin_payload is not None:
                 proc = await asyncio.create_subprocess_exec(
@@ -233,16 +255,38 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                     f"{self.cli_name} subprocess did not open stdout/stderr"
                 )
 
-            stderr_task = asyncio.create_task(
-                _read_stderr(proc.stderr, self.classify_stderr, logger, self.cli_name)
+            # Fan-in queue: both stdout and stderr feeders write tagged tuples;
+            # the main loop below reads them in arrival order so progress lines
+            # reach the caller before the first stdout line appears.
+            mux: asyncio.Queue[tuple] = asyncio.Queue()
+            stdout_feeder = asyncio.create_task(
+                _feed_stdout_to_queue(proc.stdout, mux, timeout)
+            )
+            stderr_feeder = asyncio.create_task(
+                _feed_stderr_to_queue(proc.stderr, self.classify_stderr, mux, logger, self.cli_name)
             )
 
-            while True:
-                try:
-                    line = await asyncio.wait_for(
-                        proc.stdout.readline(), timeout=timeout
-                    )
-                except asyncio.TimeoutError:
+            stdout_done = False
+            stderr_done = False
+
+            while not (stdout_done and stderr_done):
+                item = await mux.get()
+                tag = item[0]
+
+                if tag == _MUX_STDOUT:
+                    decoded = item[1].decode()
+                    output_lines += 1
+                    stdout_capture.append(decoded)
+                    logger.debug("%s | stdout | %s", self.cli_name, decoded.rstrip())
+                    yield decoded
+                elif tag == _MUX_PROGRESS:
+                    yield f"{PROGRESS_MARKER}{item[1]}"
+                elif tag == _MUX_STDOUT_DONE:
+                    stdout_done = True
+                elif tag == _MUX_STDERR_DONE:
+                    stderr_done = True
+                    stderr_warning_lines = item[1]
+                elif tag == _MUX_TIMEOUT:
                     proc.kill()
                     elapsed = time.monotonic() - t_start
                     logger.error(
@@ -251,14 +295,39 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                     )
                     yield "\n[TIMEOUT]\n"
                     timed_out = True
+                    # Exit the fan-in loop immediately; feeder cleanup happens
+                    # in the finally block below.
+                    stdout_done = True
+                    stderr_done = True
+
+            # Drain any items that arrived after we broke out (e.g., stderr
+            # completing right after a timeout).
+            while not mux.empty():
+                try:
+                    item = mux.get_nowait()
+                    if item[0] == _MUX_STDERR_DONE:
+                        stderr_warning_lines = item[1]
+                except asyncio.QueueEmpty:
                     break
-                if not line:
-                    break
-                decoded = line.decode()
-                output_lines += 1
-                stdout_capture.append(decoded)
-                logger.debug("%s | stdout | %s", self.cli_name, decoded.rstrip())
-                yield decoded
+
+            # If stderr feeder is still alive (e.g. after timeout), wait briefly
+            # to collect any final warning lines before reaping the process.
+            if stderr_feeder is not None and not stderr_feeder.done():
+                try:
+                    await asyncio.wait_for(stderr_feeder, timeout=_CLEANUP_TIMEOUT)
+                    while not mux.empty():
+                        try:
+                            item = mux.get_nowait()
+                            if item[0] == _MUX_STDERR_DONE:
+                                stderr_warning_lines = item[1]
+                        except asyncio.QueueEmpty:
+                            break
+                except asyncio.TimeoutError:
+                    stderr_feeder.cancel()
+                    logger.warning(
+                        "%s | stderr drain timed out after %.1fs",
+                        self.cli_name, _CLEANUP_TIMEOUT,
+                    )
 
             # Bound the post-stream reap so a CLI that ignores SIGKILL can't
             # deadlock the request handler.
@@ -273,23 +342,23 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
             # Consumer cancelled us (e.g. SSE client disconnected). Reap the
             # subprocess and helper tasks before propagating so we don't leak
             # processes / file descriptors.
-            await _cleanup(proc, stderr_task, stdin_task, logger, self.cli_name)
+            await _cleanup(proc, [stdout_feeder, stderr_feeder, stdin_task], logger, self.cli_name)
             raise
         except Exception:  # noqa: BLE001 — same cleanup, then re-raise.
-            await _cleanup(proc, stderr_task, stdin_task, logger, self.cli_name)
+            await _cleanup(proc, [stdout_feeder, stderr_feeder, stdin_task], logger, self.cli_name)
             raise
         finally:
-            # Cancel and drain the stdin writer task — once stdout is closed
-            # we don't need it any more, and on broken-pipe we want it to
-            # exit promptly rather than tie up the event loop.
-            if stdin_task is not None and not stdin_task.done():
-                stdin_task.cancel()
-                try:
-                    await asyncio.wait_for(stdin_task, timeout=_CLEANUP_TIMEOUT)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
-                except Exception:  # noqa: BLE001 — already-cancelled, broken pipe, etc.
-                    pass
+            # Guarantee all helper tasks are cancelled and reaped even on the
+            # normal exit path (they should already be done, but be defensive).
+            for _task in (stdin_task, stdout_feeder, stderr_feeder):
+                if _task is not None and not _task.done():
+                    _task.cancel()
+                    try:
+                        await asyncio.wait_for(_task, timeout=_CLEANUP_TIMEOUT)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                    except Exception:  # noqa: BLE001
+                        pass
 
         elapsed = time.monotonic() - t_start
         rc = proc.returncode if proc is not None else None
@@ -304,21 +373,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                 self.cli_name, rc, output_lines, elapsed,
             )
 
-        # Drain stderr; bound the wait so a stuck reader can't hang us.
-        stderr_lines: list[str] = []
-        if stderr_task is not None:
-            try:
-                stderr_lines = await asyncio.wait_for(
-                    stderr_task, timeout=_CLEANUP_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                stderr_task.cancel()
-                logger.warning(
-                    "%s | stderr drain timed out after %.1fs",
-                    self.cli_name, _CLEANUP_TIMEOUT,
-                )
-
-        warning_lines = list(stderr_lines)
+        warning_lines = list(stderr_warning_lines)
         captured_stdout = "".join(stdout_capture).strip()
         is_failure = rc is None or rc != 0
         if is_failure:
@@ -339,7 +394,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                 self.extra_failure_warnings(
                     rc=rc if rc is not None else -1,
                     stdout_lines=stdout_capture,
-                    stderr_lines=stderr_lines,
+                    stderr_lines=stderr_warning_lines,
                 )
             )
 
@@ -356,7 +411,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                 (line for line in captured_stdout.splitlines() if line.strip()), ""
             )
             first_stderr_line = next(
-                (line for line in stderr_lines if line.strip()), ""
+                (line for line in stderr_warning_lines if line.strip()), ""
             )
             detail = first_stdout_line or first_stderr_line or "(no output)"
             if len(detail) > 200:
@@ -392,7 +447,9 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         async for chunk in self._invoke_stream(
             message, mode="review", context=diff, model=model,
         ):
-            if chunk.startswith(STDERR_MARKER):
+            if chunk.startswith(PROGRESS_MARKER):
+                yield ReviewProgressEvent(text=chunk[PROGRESS_MARKER_LEN:])
+            elif chunk.startswith(STDERR_MARKER):
                 warning_lines.append(chunk[STDERR_MARKER_LEN:])
             else:
                 chunks.append(chunk)
@@ -429,7 +486,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         async for chunk in self._invoke_stream(
             message, mode="analyze", context=comments_text[:20000],
         ):
-            if chunk.startswith(STDERR_MARKER):
+            if chunk.startswith(STDERR_MARKER) or chunk.startswith(PROGRESS_MARKER):
                 continue
             output_parts.append(chunk)
         return parse_analyze_output("".join(output_parts))
@@ -449,7 +506,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         async for chunk in self._invoke_stream(
             prompt, mode="fix", cwd=repo_dir, timeout=DEFAULT_FIX_TIMEOUT,
         ):
-            if chunk.startswith(STDERR_MARKER):
+            if chunk.startswith(STDERR_MARKER) or chunk.startswith(PROGRESS_MARKER):
                 continue
             yield FixChunkEvent(text=chunk)
 
@@ -459,6 +516,8 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         async for chunk in self._invoke_stream(prompt, mode="generate", timeout=timeout):
             if chunk.startswith(STDERR_MARKER):
                 stderr_parts.append(chunk[STDERR_MARKER_LEN:])
+                continue
+            if chunk.startswith(PROGRESS_MARKER):
                 continue
             parts.append(chunk)
         if stderr_parts:
@@ -506,22 +565,49 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
             yield chunk
 
 
-async def _read_stderr(
+async def _feed_stdout_to_queue(
+    stream: asyncio.StreamReader,
+    queue: asyncio.Queue,
+    timeout: float,
+) -> None:
+    """Read stdout line-by-line and push tagged tuples to the fan-in queue.
+
+    Tags: ``(_MUX_STDOUT, bytes)`` for each line, ``(_MUX_TIMEOUT,)`` if the
+    per-line timeout fires, ``(_MUX_STDOUT_DONE,)`` on EOF.
+    """
+    while True:
+        try:
+            line = await asyncio.wait_for(stream.readline(), timeout=timeout)
+        except asyncio.TimeoutError:
+            await queue.put((_MUX_TIMEOUT,))
+            return
+        if not line:
+            await queue.put((_MUX_STDOUT_DONE,))
+            return
+        await queue.put((_MUX_STDOUT, line))
+
+
+async def _feed_stderr_to_queue(
     stream: asyncio.StreamReader,
     classify: Callable[[str], StderrCategory],
+    queue: asyncio.Queue,
     logger: logging.Logger,
     cli_name: str,
-) -> list[str]:
-    """Drain a subprocess's stderr, applying the adapter's classifier.
+) -> None:
+    """Read stderr and push to the fan-in queue.
 
-    Returns the list of *warning*-classified lines (info lines are logged at
-    INFO level and dropped, skip lines are silenced entirely).
+    *Info*-classified lines become ``(_MUX_PROGRESS, text)`` items delivered
+    in real time so they can reach the frontend before the first stdout chunk.
+    *Warning*-classified lines are accumulated and sent as a single
+    ``(_MUX_STDERR_DONE, [lines])`` item on EOF so the existing warning-panel
+    behaviour is preserved.  *Skip*-classified lines are silenced entirely.
     """
-    lines: list[str] = []
+    warning_lines: list[str] = []
     while True:
         line = await stream.readline()
         if not line:
-            break
+            await queue.put((_MUX_STDERR_DONE, warning_lines))
+            return
         decoded = line.decode().rstrip()
         if not decoded:
             continue
@@ -530,10 +616,10 @@ async def _read_stderr(
             continue
         if verdict == "info":
             logger.info("%s | %s", cli_name, decoded)
-            continue
-        logger.warning("%s | stderr | %s", cli_name, decoded)
-        lines.append(decoded)
-    return lines
+            await queue.put((_MUX_PROGRESS, decoded))
+        else:
+            logger.warning("%s | stderr | %s", cli_name, decoded)
+            warning_lines.append(decoded)
 
 
 async def _drain_stdin(
@@ -574,8 +660,7 @@ async def _drain_stdin(
 
 async def _cleanup(
     proc: asyncio.subprocess.Process | None,
-    stderr_task: asyncio.Task[list[str]] | None,
-    stdin_task: asyncio.Task[None] | None,
+    tasks: list[asyncio.Task | None],
     logger: logging.Logger,
     cli_name: str,
 ) -> None:
@@ -601,7 +686,7 @@ async def _cleanup(
             )
         except Exception:  # noqa: BLE001
             logger.warning("%s | cleanup wait() failed", cli_name, exc_info=True)
-    for task in (stdin_task, stderr_task):
+    for task in tasks:
         if task is None or task.done():
             continue
         task.cancel()
@@ -627,6 +712,8 @@ __all__ = [
     "DEFAULT_GENERATE_TIMEOUT",
     "DEFAULT_REVIEW_TIMEOUT",
     "Mode",
+    "PROGRESS_MARKER",
+    "PROGRESS_MARKER_LEN",
     "STDERR_MARKER",
     "STDERR_MARKER_LEN",
     "StderrCategory",

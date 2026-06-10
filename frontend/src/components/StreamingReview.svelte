@@ -24,6 +24,7 @@
   let elapsedSec = $state(0);
   let _startTime = 0;
   let _timerId: ReturnType<typeof setInterval> | null = null;
+  let latestProgress = $state('');
 
   // Smooth asymptotic progress: 0 → 90% over time, jumps to 100% when done.
   // 1 - e^(-t/45) reaches ~50% at 31s, ~86% at 90s — feels deterministic.
@@ -34,9 +35,11 @@
   );
 
   // Phase detected from the tail of accumulated output.
+  // During the connecting phase (no chunks yet), show the latest stderr
+  // progress line from OpenCode instead of the static waiting message.
   const phaseLabel = $derived(
     chunkCount === 0
-      ? 'Waiting for first response…'
+      ? (latestProgress || 'Waiting for first response…')
       : /"findings"/.test(chunkLog.slice(-300)) || /^\s*\[/.test(chunkLog.slice(-60))
         ? 'Generating review…'
         : /^[>✓✗]|\b(Reading|Writing|Searching|Executing)\b/m.test(chunkLog.slice(-400))
@@ -77,6 +80,9 @@
       chunkCount++;
       totalBytes += event.text.length;
       chunkLog += event.text;
+    } else if (event.type === 'progress') {
+      latestProgress = event.text;
+      if (_timerId === null) _startTimer();
     } else if (event.type === 'result') {
       _stopTimer();
       findings = event.review.findings;
