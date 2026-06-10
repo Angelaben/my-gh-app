@@ -40,11 +40,6 @@ from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal
 
-# Set LOG_AI_CHUNKS=1 to log the instruction prompt and each stdout chunk
-# (first 300 chars) at INFO level.  Useful for local debugging; avoid in
-# production when LOG_OPS=1 since content will land in ops.jsonl.
-_LOG_AI_CHUNKS = os.getenv("LOG_AI_CHUNKS", "").strip().lower() in {"1", "true", "yes"}
-
 from app.adapters._subprocess import clean_env
 from app.adapters.ai._parsing import parse_analyze_output, parse_review_output
 from app.adapters.ai._prompts import ANALYZE_PROMPT, FIX_PROMPT, REVIEW_PROMPT
@@ -59,6 +54,11 @@ from app.ports.ai_provider import (
     ReviewStreamEvent,
     ReviewWarningEvent,
 )
+
+# Set LOG_AI_CHUNKS=1 to log the instruction prompt and each stdout chunk
+# (first 300 chars) at INFO level.  Useful for local debugging; avoid in
+# production when LOG_OPS=1 since content will land in ops.jsonl.
+_LOG_AI_CHUNKS = os.getenv("LOG_AI_CHUNKS", "").strip().lower() in {"1", "true", "yes"}
 
 # Strip ANSI/VT100 escape sequences from a string.  OpenCode's TUI emits
 # cursor-movement and line-erase codes (e.g. \033[K, \r) even when its stderr
