@@ -26,6 +26,7 @@ from app.ports.ai_provider import (
     AIProvider,
     FixChunkEvent,
     ReviewChunkEvent,
+    ReviewProgressEvent,
     ReviewResultEvent,
     ReviewStreamEvent,
     ReviewWarningEvent,
@@ -546,6 +547,8 @@ async def stream_review(
                 if isinstance(event, ReviewChunkEvent):
                     for line in event.text.splitlines(keepends=True):
                         yield f"data: {json.dumps({'type': 'chunk', 'text': line})}\n\n"
+                elif isinstance(event, ReviewProgressEvent):
+                    yield f"data: {json.dumps({'type': 'progress', 'text': event.text})}\n\n"
                 elif isinstance(event, ReviewWarningEvent):
                     yield f"data: {json.dumps({'type': 'warning', 'lines': event.lines})}\n\n"
                 elif isinstance(event, ReviewResultEvent):

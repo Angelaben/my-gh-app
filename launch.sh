@@ -11,6 +11,7 @@
 #   ./launch.sh my-session               # custom tmux session name
 #   ./launch.sh --no-build               # skip npm install/build (fast restart)
 #   API_PORT=9000 ./launch.sh            # port via env var
+#   LOG_AI_CHUNKS=0 ./launch.sh          # disable verbose AI chunk logging
 set -euo pipefail
 
 PROVIDER="${AI_PROVIDER:-opencode}"
@@ -31,7 +32,7 @@ while [[ $# -gt 0 ]]; do
     --no-build)
       BUILD=0; shift ;;
     -h|--help)
-      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
       if [[ -z "$SESSION" ]]; then
@@ -80,7 +81,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exec tmux attach -t "$SESSION"
 fi
 
-BACKEND_CMD="AI_PROVIDER=${PROVIDER} uv run uvicorn app.main:app --reload --port ${PORT}"
+BACKEND_CMD="AI_PROVIDER=${PROVIDER} LOG_AI_CHUNKS=${LOG_AI_CHUNKS:-1} uv run uvicorn app.main:app --reload --port ${PORT}"
 FRONTEND_CMD="API_PORT=${PORT} npm run dev"
 
 tmux new-session -d -s "$SESSION" -c "$ROOT" -n app

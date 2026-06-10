@@ -15,6 +15,7 @@ from app.adapters.ai import _base
 from app.adapters.ai._base import (
     BaseCLIAIAdapter,
     CLIInvocation,
+    PROGRESS_MARKER,
     STDERR_MARKER,
     split_stderr_chunk,
 )
@@ -23,6 +24,7 @@ from app.domain.exceptions import ProviderError
 from app.domain.models import Comment, Finding
 from app.ports.ai_provider import (
     ReviewChunkEvent,
+    ReviewProgressEvent,
     ReviewResultEvent,
     ReviewWarningEvent,
 )
@@ -272,12 +274,44 @@ async def test_stream_cli_classify_stderr_info_logs_at_info_level(monkeypatch, c
         return "info"
 
     adapter = _FakeAdapter(classify=classify)
+    chunks = []
     with caplog.at_level("INFO", logger="fake"):
-        async for _ in adapter.stream_cli("hi", mode="generate"):
-            pass
+        async for chunk in adapter.stream_cli("hi", mode="generate"):
+            chunks.append(chunk)
 
     # Info-classified lines must NOT show up in the warning channel.
     assert not any("> progress" in r.message for r in caplog.records if r.levelname == "WARNING")
+    # Info-classified lines MUST be emitted as PROGRESS_MARKER chunks in real time.
+    progress_payloads = [c[len(PROGRESS_MARKER):] for c in chunks if c.startswith(PROGRESS_MARKER)]
+    assert any("> progress" in p for p in progress_payloads)
+
+
+async def test_stream_cli_classify_stderr_info_emits_progress_marker(monkeypatch):
+    """Info-classified stderr lines are yielded as PROGRESS_MARKER chunks and
+    must NOT appear in the STDERR_MARKER (warning) channel."""
+    captured: dict = {}
+    proc = _FakeProc(
+        stdout_lines=[b"line1\n"],
+        stderr_lines=[b"> step one\n", "✓ done\n".encode()],
+        returncode=0,
+    )
+    _patch_subprocess(monkeypatch, proc, captured)
+
+    def classify(line):
+        return "info"
+
+    adapter = _FakeAdapter(classify=classify)
+    chunks = []
+    async for chunk in adapter.stream_cli("hi", mode="generate"):
+        chunks.append(chunk)
+
+    progress = [c[len(PROGRESS_MARKER):] for c in chunks if c.startswith(PROGRESS_MARKER)]
+    assert "> step one" in progress
+    assert "✓ done" in progress
+
+    # Must NOT appear as warnings
+    warnings = [c[len(STDERR_MARKER):] for c in chunks if c.startswith(STDERR_MARKER)]
+    assert all("> step one" not in w and "✓ done" not in w for w in warnings)
 
 
 async def test_stream_cli_emits_warning_on_nonzero_exit_with_no_stdout(monkeypatch):
@@ -484,6 +518,36 @@ async def test_stream_review_emits_warning_event_for_stderr_chunks(monkeypatch):
     warns = [e for e in events if isinstance(e, ReviewWarningEvent)]
     assert len(warns) == 1
     assert warns[0].lines == ["boom", "again"]
+
+
+async def test_stream_review_emits_progress_event_for_progress_chunks(monkeypatch):
+    """PROGRESS_MARKER chunks from the stream become ReviewProgressEvent objects
+    and must NOT appear as chunks or warnings."""
+    adapter = _FakeAdapter()
+    monkeypatch.setattr(
+        adapter,
+        "_invoke_stream",
+        _async_iter([
+            f"{PROGRESS_MARKER}> Reading context",
+            f"{PROGRESS_MARKER}✓ Tool use complete",
+            '{"summary":"ok","findings":[]}',
+        ]),
+    )
+
+    events = []
+    async for ev in adapter.stream_review("acme/repo", 1, "diff"):
+        events.append(ev)
+
+    progress = [e for e in events if isinstance(e, ReviewProgressEvent)]
+    assert len(progress) == 2
+    assert progress[0].text == "> Reading context"
+    assert progress[1].text == "✓ Tool use complete"
+
+    # Progress must not bleed into chunk or warning channels
+    chunks = [e for e in events if isinstance(e, ReviewChunkEvent)]
+    assert all(PROGRESS_MARKER not in e.text for e in chunks)
+    warns = [e for e in events if isinstance(e, ReviewWarningEvent)]
+    assert not warns
 
 
 async def test_analyze_comments_returns_empty_for_no_comments():
