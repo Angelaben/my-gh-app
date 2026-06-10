@@ -1,5 +1,11 @@
 """Tests for app.services._diff_splitter."""
-from app.services._diff_splitter import FileDiff, pack_chunks, split_unified_diff
+from app.services._diff_splitter import (
+    DEFAULT_IGNORE_GLOBS,
+    FileDiff,
+    filter_ignored_files,
+    pack_chunks,
+    split_unified_diff,
+)
 
 
 SAMPLE_DIFF = """diff --git a/foo.py b/foo.py
@@ -110,3 +116,82 @@ class TestPackChunks:
         chunks = pack_chunks(files, max_chars=15000)
         for c in chunks:
             assert len(c.content) <= 15000
+
+
+def _make_hunked_file(path: str, hunk_count: int, hunk_size: int) -> FileDiff:
+    """A FileDiff with a real header and `hunk_count` hunks of ~hunk_size chars."""
+    header = f"diff --git a/{path} b/{path}\nindex 111..222 100644\n--- a/{path}\n+++ b/{path}\n"
+    hunks = ""
+    for i in range(hunk_count):
+        line = f"@@ -{i*10},1 +{i*10},1 @@\n"
+        body = "+" + "x" * (hunk_size - len(line) - 2) + "\n"
+        hunks += line + body
+    return FileDiff(path=path, content=header + hunks)
+
+
+class TestOversizedFileHunkSplitting:
+    def test_oversized_file_split_at_hunk_boundaries(self):
+        f = _make_hunked_file("big.py", hunk_count=10, hunk_size=500)
+        chunks = pack_chunks([f], max_chars=2000)
+        assert len(chunks) > 1
+        # Nothing truncated: every hunk fits a chunk alongside the header.
+        assert all(c.truncated_files == [] for c in chunks)
+        for c in chunks:
+            assert len(c.content) <= 2000
+            assert c.files == ["big.py"]
+            # Header is repeated so each chunk keeps the file context.
+            assert c.content.startswith("diff --git a/big.py")
+            assert "@@ " in c.content
+
+    def test_all_hunks_preserved_across_chunks(self):
+        f = _make_hunked_file("big.py", hunk_count=10, hunk_size=500)
+        chunks = pack_chunks([f], max_chars=2000)
+        total_hunks = sum(c.content.count("@@ ") for c in chunks)
+        assert total_hunks == 10
+
+    def test_other_files_not_packed_into_split_chunks(self):
+        big = _make_hunked_file("big.py", hunk_count=10, hunk_size=500)
+        small = _make_file("small.py", 100)
+        chunks = pack_chunks([big, small], max_chars=2000)
+        for c in chunks:
+            if "big.py" in c.files:
+                assert c.files == ["big.py"]
+
+    def test_single_giant_hunk_falls_back_to_truncation(self):
+        f = _make_hunked_file("big.py", hunk_count=1, hunk_size=5000)
+        chunks = pack_chunks([f], max_chars=2000)
+        assert len(chunks) == 1
+        assert chunks[0].truncated_files == ["big.py"]
+        assert len(chunks[0].content) <= 2000
+
+
+class TestFilterIgnoredFiles:
+    def _files(self, *paths: str) -> list[FileDiff]:
+        return [FileDiff(path=p, content=f"diff --git a/{p} b/{p}\n") for p in paths]
+
+    def test_no_patterns_keeps_everything(self):
+        files = self._files("a.py", "package-lock.json")
+        kept, ignored = filter_ignored_files(files, ())
+        assert [f.path for f in kept] == ["a.py", "package-lock.json"]
+        assert ignored == []
+
+    def test_default_globs_drop_lockfiles_and_artifacts(self):
+        files = self._files(
+            "app/main.py",
+            "package-lock.json",
+            "frontend/package-lock.json",
+            "uv.lock",
+            "dist/bundle.min.js",
+            "frontend/dist/app.js",
+            "assets/logo.svg",
+            "src/api.generated.ts",
+        )
+        kept, ignored = filter_ignored_files(files, DEFAULT_IGNORE_GLOBS)
+        assert [f.path for f in kept] == ["app/main.py"]
+        assert len(ignored) == 7
+
+    def test_custom_pattern_matches_basename(self):
+        files = self._files("deep/nested/secret.env", "app/main.py")
+        kept, ignored = filter_ignored_files(files, ("*.env",))
+        assert [f.path for f in kept] == ["app/main.py"]
+        assert ignored == ["deep/nested/secret.env"]

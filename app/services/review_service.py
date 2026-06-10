@@ -23,7 +23,14 @@ from app.ports.ai_provider import (
 from app.ports.cache_port import CachePort
 from app.ports.vcs_port import VCSPort
 from app.services import metrics
-from app.services._diff_splitter import Chunk, pack_chunks, split_unified_diff
+from app.services._diff_splitter import (
+    DEFAULT_IGNORE_GLOBS,
+    Chunk,
+    FileDiff,
+    filter_ignored_files,
+    pack_chunks,
+    split_unified_diff,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +60,44 @@ class ReviewService:
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         """Stream review events. Splits & merges large diffs transparently."""
         t0 = time.monotonic()
-        diff = self._vcs.get_diff(repo_full_name, pr_number)
+        raw_diff = self._vcs.get_diff(repo_full_name, pr_number)
         head_sha = self._fetch_head_sha(repo_full_name, pr_number)
         max_chars = _read_int_env("REVIEW_DIFF_MAX_CHARS", _DEFAULT_MAX_CHARS)
         max_concurrency = _read_int_env("REVIEW_MAX_CONCURRENCY", _DEFAULT_MAX_CONCURRENCY)
+
+        files = split_unified_diff(raw_diff)
+        ignored: list[str] = []
+        if files:
+            files, ignored = filter_ignored_files(files, _ignore_globs_from_env())
+            diff = "".join(f.content for f in files)
+        else:
+            # No parseable file sections — review the raw diff as-is.
+            diff = raw_diff
+
+        if ignored:
+            yield ReviewWarningEvent([
+                f"Skipped {len(ignored)} generated/vendored file(s) "
+                f"(configure via REVIEW_IGNORE_GLOBS): " + ", ".join(sorted(ignored))
+            ])
+            logger.info(
+                "review-service | ignored files | repo=%s pr=#%d count=%d",
+                repo_full_name, pr_number, len(ignored),
+            )
+            if not files:
+                review = Review(
+                    summary=(
+                        f"All {len(ignored)} changed file(s) matched the review "
+                        "ignore filters — nothing to review."
+                    ),
+                    findings=[],
+                )
+                self._finalize_review(
+                    review, repo_full_name, pr_number, head_sha,
+                    t0=t0, model=model, diff_chars=0,
+                    chunks=0, files=0, failed_chunks=0,
+                )
+                yield ReviewResultEvent(review)
+                return
 
         if len(diff) <= max_chars:
             async for event in self._ai.stream_review(
@@ -66,13 +107,13 @@ class ReviewService:
                     self._finalize_review(
                         event.review, repo_full_name, pr_number, head_sha,
                         t0=t0, model=model, diff_chars=len(diff),
-                        chunks=1, files=1, failed_chunks=0,
+                        chunks=1, files=max(len(files), 1), failed_chunks=0,
                     )
                 yield event
             return
 
         async for event in self._stream_split_review(
-            repo_full_name, pr_number, diff, model, max_chars, max_concurrency,
+            repo_full_name, pr_number, diff, files, model, max_chars, max_concurrency,
             head_sha=head_sha, t0=t0,
         ):
             yield event
@@ -142,6 +183,7 @@ class ReviewService:
         repo_full_name: str,
         pr_number: int,
         diff: str,
+        files: list[FileDiff],
         model: str | None,
         max_chars: int,
         max_concurrency: int,
@@ -151,7 +193,6 @@ class ReviewService:
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         if t0 is None:
             t0 = time.monotonic()
-        files = split_unified_diff(diff)
         chunks = pack_chunks(files, max_chars)
         truncated = [path for c in chunks for path in c.truncated_files]
 
@@ -242,6 +283,7 @@ class ReviewService:
         if sub_summaries:
             merged_summary += "\n\n" + "\n\n".join(f"- {s}" for s in sub_summaries)
 
+        findings = _dedupe_findings(findings)
         # Sort findings by priority so P0 appears first, then P1, P2, P3.
         findings.sort(key=lambda f: f.priority)
 
@@ -269,6 +311,38 @@ class ReviewService:
 
     def clear_cache(self, repo_full_name: str, pr_number: int) -> None:
         self._cache.clear_review(repo_full_name, pr_number)
+
+
+def _dedupe_findings(findings: list[Finding]) -> list[Finding]:
+    """Drop duplicate findings produced by overlapping chunk reviews.
+
+    Two findings are duplicates when they target the same file/line and share
+    a normalized title; the highest-priority occurrence wins ("P0" < "P1"
+    lexicographically, so plain string comparison orders correctly).
+    """
+    best: dict[tuple, Finding] = {}
+    order: list[tuple] = []
+    for f in findings:
+        key = (f.file, f.line, f.title.strip().lower())
+        current = best.get(key)
+        if current is None:
+            best[key] = f
+            order.append(key)
+        elif f.priority < current.priority:
+            best[key] = f
+    return [best[k] for k in order]
+
+
+def _ignore_globs_from_env() -> tuple[str, ...]:
+    """Glob patterns for files excluded from review.
+
+    Unset → built-in defaults; set to "" → filtering disabled; set to a
+    comma-separated list → replaces the defaults.
+    """
+    raw = os.getenv("REVIEW_IGNORE_GLOBS")
+    if raw is None:
+        return DEFAULT_IGNORE_GLOBS
+    return tuple(p.strip() for p in raw.split(",") if p.strip())
 
 
 def _read_int_env(name: str, default: int) -> int:

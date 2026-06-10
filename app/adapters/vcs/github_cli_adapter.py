@@ -1,6 +1,7 @@
 """GitHub CLI implementation of VCSPort."""
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -17,6 +18,17 @@ logger = logging.getLogger(__name__)
 # 500/502/503/504 = upstream/gateway hiccups.
 _RETRYABLE_HTTP = re.compile(r"\bHTTP (408|425|429|500|502|503|504)\b")
 _RETRY_DELAYS_S: tuple[float, ...] = (1.0, 2.0, 4.0)
+
+_DEFAULT_PR_LIST_LIMIT = 50
+
+
+def _pr_list_limit() -> int:
+    raw = os.getenv("PR_LIST_LIMIT", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_PR_LIST_LIMIT
+    return value if value > 0 else _DEFAULT_PR_LIST_LIMIT
 
 
 class GitHubCLIAdapter(VCSPort):
@@ -45,7 +57,7 @@ class GitHubCLIAdapter(VCSPort):
             "pr", "list",
             "--repo", repo_full_name,
             "--json", "number,title,author,url,updatedAt,headRefName,baseRefName,isDraft,additions,deletions",
-            "--limit", "50",
+            "--limit", str(_pr_list_limit()),
             "--state", "open",
         ])
         prs = json.loads(raw) if raw else []
