@@ -55,6 +55,7 @@ export interface Comment {
 }
 
 export type SSEReviewEvent =
+  | { type: 'meta'; request_id: string }
   | { type: 'chunk'; text: string }
   | { type: 'progress'; text: string }
   | { type: 'result'; review: Review }
