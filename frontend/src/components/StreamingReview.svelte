@@ -26,6 +26,27 @@
   let _timerId: ReturnType<typeof setInterval> | null = null;
   let latestProgress = $state('');
 
+  // Agent activity console: live trace of what the CLI subprocess is doing
+  // (stderr progress lines, sub-call lifecycle, warnings).
+  type ActivityEntry = { offset: string; kind: 'progress' | 'lifecycle' | 'warning' | 'meta'; text: string };
+  const ACTIVITY_CAP = 300;
+  let activity = $state<ActivityEntry[]>([]);
+  let requestId = $state('');
+  let consoleOpen = $state(true);
+  let consoleEl = $state<HTMLElement | null>(null);
+
+  function pushActivity(kind: ActivityEntry['kind'], text: string) {
+    const sec = _startTime ? (Date.now() - _startTime) / 1000 : 0;
+    const next = [...activity, { offset: `${sec.toFixed(1)}s`, kind, text }];
+    activity = next.length > ACTIVITY_CAP ? next.slice(next.length - ACTIVITY_CAP) : next;
+  }
+
+  // Auto-scroll the console to the latest entry.
+  $effect(() => {
+    void activity.length;
+    if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
+  });
+
   // Smooth asymptotic progress: 0 → 90% over time, jumps to 100% when done.
   // 1 - e^(-t/45) reaches ~50% at 31s, ~86% at 90s — feels deterministic.
   const progressPct = $derived(
@@ -75,7 +96,10 @@
   }
 
   function handleEvent(event: SSEReviewEvent) {
-    if (event.type === 'chunk') {
+    if (event.type === 'meta') {
+      requestId = event.request_id;
+      if (requestId) pushActivity('meta', `request id: ${requestId}`);
+    } else if (event.type === 'chunk') {
       if (status === 'connecting') { status = 'streaming'; _startTimer(); }
       chunkCount++;
       totalBytes += event.text.length;
@@ -83,16 +107,19 @@
     } else if (event.type === 'progress') {
       latestProgress = event.text;
       if (_timerId === null) _startTimer();
+      pushActivity(event.text.startsWith('[chunk ') ? 'lifecycle' : 'progress', event.text);
     } else if (event.type === 'result') {
       _stopTimer();
       findings = event.review.findings;
       cachedReview.set(event.review);
       status = 'done';
+      consoleOpen = false;
       oncomplete?.();
     } else if (event.type === 'warning') {
       warnings = [...warnings, ...event.lines];
+      for (const line of event.lines) pushActivity('warning', line);
     } else if (event.type === 'done') {
-      if (status !== 'done') { _stopTimer(); status = 'done'; oncomplete?.(); }
+      if (status !== 'done') { _stopTimer(); status = 'done'; consoleOpen = false; oncomplete?.(); }
     } else if (event.type === 'error') {
       _stopTimer();
       errorMsg = event.message;
@@ -177,6 +204,26 @@
 
   {#if status === 'error'}
     <div class="error-box">{errorMsg}</div>
+  {/if}
+
+  {#if activity.length > 0}
+    <details class="agent-console" bind:open={consoleOpen}>
+      <summary>
+        Agent activity · {activity.length} event{activity.length !== 1 ? 's' : ''}
+        {#if requestId}<span class="console-reqid">req {requestId}</span>{/if}
+      </summary>
+      <div class="console-body" bind:this={consoleEl}>
+        {#each activity as entry, i (i)}
+          <div class="console-line {entry.kind}">
+            <span class="console-offset">{entry.offset}</span>
+            <span class="console-text">{entry.text}</span>
+          </div>
+        {/each}
+        {#if status === 'connecting' || status === 'streaming'}
+          <div class="console-line cursor">▌</div>
+        {/if}
+      </div>
+    </details>
   {/if}
 
   {#if findings.length > 0}
@@ -298,6 +345,37 @@
     font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);
     white-space: pre-wrap; word-break: break-all; line-height: 1.6;
   }
+
+  .agent-console {
+    border: 1px solid var(--glass-border); border-top: none;
+    background: rgba(0,0,0,0.25);
+  }
+  .agent-console summary {
+    padding: 6px 12px;
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .agent-console summary:hover { color: var(--text-secondary); }
+  .console-reqid {
+    margin-left: auto; text-transform: none; letter-spacing: 0;
+    font-family: var(--font-mono); font-weight: 400; color: var(--text-muted); opacity: 0.7;
+  }
+  .console-body {
+    max-height: 180px; overflow-y: auto;
+    padding: 6px 12px 8px;
+    font-family: var(--font-mono); font-size: 10px; line-height: 1.7;
+    border-top: 1px solid var(--glass-border);
+  }
+  .console-line { display: flex; gap: 10px; white-space: pre-wrap; word-break: break-word; }
+  .console-offset { color: var(--text-muted); opacity: 0.55; min-width: 42px; text-align: right; flex-shrink: 0; }
+  .console-line.progress .console-text { color: var(--text-secondary); }
+  .console-line.lifecycle .console-text { color: var(--accent); }
+  .console-line.warning .console-text { color: #ffc800; }
+  .console-line.meta .console-text { color: var(--text-muted); font-style: italic; }
+  .console-line.cursor { color: var(--accent); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 
   .raw-log { margin-top: 10px; }
   .raw-log summary { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; }

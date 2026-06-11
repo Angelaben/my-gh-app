@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { comments, loadComments, analyzeComments } from '../stores/prs';
+  import { comments, loadComments, analyzeComments, newCommentIds } from '../stores/prs';
   import { showToast, activeFixController } from '../stores/ui';
   import { get } from 'svelte/store';
-  import type { Repo, PR } from '../lib/types';
+  import type { Repo, PR, Comment } from '../lib/types';
   import CommentCard from './CommentCard.svelte';
 
   let { repo, pr }: { repo: Repo; pr: PR } = $props();
@@ -13,6 +13,8 @@
   let analyzeController = $state<AbortController | null>(null);
   let filterAuthor = $state('');
   let filterPriority = $state('');
+  let filterNew = $state(false);
+  let filterNeedsReply = $state(false);
 
   onMount(async () => {
     try {
@@ -48,14 +50,52 @@
 
   const authors = $derived([...new Set($comments.map((c) => c.author))]);
   const hasAnalysis = $derived($comments.some((c) => c.analysis));
+  const newIds = $derived(new Set($newCommentIds));
 
-  const filtered = $derived(
-    $comments.filter((c) => {
-      if (filterAuthor && c.author !== filterAuthor) return false;
-      if (filterPriority && c.analysis?.priority !== filterPriority) return false;
+  function matchesCommentFilters(c: Comment): boolean {
+    if (filterAuthor && c.author !== filterAuthor) return false;
+    if (filterPriority && c.analysis?.priority !== filterPriority) return false;
+    return true;
+  }
+
+  // Group comments into threads (root + replies). Thread order follows the
+  // first occurrence of each thread; within a thread the root comes first,
+  // replies in creation order.
+  const threads = $derived.by(() => {
+    const groups = new Map<number, Comment[]>();
+    for (const c of $comments) {
+      const key = c.thread_id ?? c.id;
+      const group = groups.get(key);
+      if (group) group.push(c);
+      else groups.set(key, [c]);
+    }
+    return [...groups.entries()].map(([rootId, items]) => {
+      items.sort((a, b) => {
+        if (a.id === rootId) return -1;
+        if (b.id === rootId) return 1;
+        return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+      });
+      return { rootId, items };
+    });
+  });
+
+  // A thread is shown when at least one of its comments passes the filters;
+  // the whole thread is then rendered so replies keep their context.
+  const visibleThreads = $derived(
+    threads.filter(({ items }) => {
+      if (!items.some(matchesCommentFilters)) return false;
+      if (filterNew && !items.some((c) => newIds.has(c.id) || c.is_new_reply)) return false;
+      if (filterNeedsReply) {
+        const last = items[items.length - 1];
+        if (last.is_ours) return false;
+        // Only threads we participate in count as "awaiting our reply".
+        if (!items.some((c) => c.is_ours)) return false;
+      }
       return true;
     })
   );
+
+  const visibleCount = $derived(visibleThreads.reduce((n, t) => n + t.items.length, 0));
 </script>
 
 <div class="comments-tab">
@@ -79,7 +119,20 @@
       <option value="P2">P2</option>
       <option value="P3">P3</option>
     </select>
-    <span class="count">{filtered.length} / {$comments.length}</span>
+    <button
+      class="filter-chip"
+      class:active={filterNew}
+      disabled={$newCommentIds.length === 0}
+      onclick={() => filterNew = !filterNew}
+      title="Threads with comments posted since your last visit"
+    >🆕 New{#if $newCommentIds.length > 0}&nbsp;({$newCommentIds.length}){/if}</button>
+    <button
+      class="filter-chip"
+      class:active={filterNeedsReply}
+      onclick={() => filterNeedsReply = !filterNeedsReply}
+      title="Threads you participate in where someone else has the last word"
+    >↩ Needs reply</button>
+    <span class="count">{visibleCount} / {$comments.length}</span>
   </div>
 
   {#if loading}
@@ -87,11 +140,17 @@
       <div class="spinner"></div>
       <span style="color:var(--text-muted)">Loading comments…</span>
     </div>
-  {:else if filtered.length === 0}
+  {:else if visibleThreads.length === 0}
     <div class="empty-state-inline">No comments match filters.</div>
   {:else}
-    {#each filtered as comment (comment.id)}
-      <CommentCard {comment} {repo} {pr} />
+    {#each visibleThreads as { rootId, items } (rootId)}
+      <div class="thread" class:has-replies={items.length > 1}>
+        {#each items as comment, idx (comment.id)}
+          <div class="thread-item" class:thread-reply={idx > 0}>
+            <CommentCard {comment} {repo} {pr} isNew={newIds.has(comment.id) || comment.is_new_reply === true} />
+          </div>
+        {/each}
+      </div>
     {/each}
   {/if}
 </div>
@@ -119,6 +178,37 @@
   }
   .filter-select:focus { outline: none; border-color: var(--border-active); }
   .filter-select:disabled { opacity: 0.4; cursor: default; }
+
+  .filter-chip {
+    padding: 4px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--glass-border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+  .filter-chip:hover:not(:disabled) { border-color: var(--glass-border-hover); color: var(--text-secondary); }
+  .filter-chip.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+  }
+  .filter-chip:disabled { opacity: 0.4; cursor: default; }
+
+  .thread { display: flex; flex-direction: column; }
+  .thread.has-replies {
+    border-left: 2px solid var(--glass-border);
+    padding-left: 0;
+  }
+  .thread-reply { margin-left: 26px; position: relative; }
+  .thread-reply::before {
+    content: '↳';
+    position: absolute; left: -16px; top: 14px;
+    color: var(--text-muted); font-size: 11px;
+  }
 
   .count { font-size: 10px; color: var(--text-muted); margin-left: auto; }
   .analyzing-label { font-size: 11px; color: var(--text-muted); font-style: italic; }

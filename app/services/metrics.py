@@ -41,6 +41,19 @@ def record(event: str, **fields: object) -> None:
         logger.warning("metrics | write failed | error=%s", exc)
 
 
+def file_token() -> tuple[int, int] | None:
+    """Cheap change token for the metrics file: (mtime_ns, size), or None.
+
+    Used by the /api/stats/stream SSE endpoint to detect new records without
+    re-parsing the file on every poll tick.
+    """
+    try:
+        st = _metrics_path().stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
 def load(limit: int | None = None) -> list[dict]:
     """Return parsed records, oldest first. Malformed lines are skipped."""
     path = _metrics_path()

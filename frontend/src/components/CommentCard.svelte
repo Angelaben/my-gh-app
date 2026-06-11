@@ -4,7 +4,7 @@
   import { showToast, activeFixController } from '../stores/ui';
   import { deleteComment, comments } from '../stores/prs';
 
-  let { comment, repo, pr }: { comment: Comment; repo: Repo; pr: PR } = $props();
+  let { comment, repo, pr, isNew = false }: { comment: Comment; repo: Repo; pr: PR; isNew?: boolean } = $props();
 
   type FixStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -138,9 +138,15 @@
   }
 </script>
 
-<div class="comment-card" class:bot-comment={isGeneratedByTool}>
+<div class="comment-card" class:bot-comment={isGeneratedByTool} class:new-comment={isNew}>
   <div class="comment-header">
     <span class="author">{comment.author}</span>
+    {#if isNew}
+      <span class="new-badge">NEW</span>
+    {/if}
+    {#if comment.has_new_replies}
+      <span class="new-replies-dot" title="This thread has new replies since your last visit">● new replies</span>
+    {/if}
     {#if comment.file}
       <span class="file-ref">{comment.file}{comment.line ? `:${comment.line}` : ''}</span>
     {/if}
@@ -226,6 +232,15 @@
     background: rgba(255, 107, 53, 0.12); border: 1px solid rgba(255, 107, 53, 0.3);
     border-radius: var(--radius-sm); padding: 1px 6px; white-space: nowrap;
   }
+  .comment-card.new-comment { border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+  .new-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+    border-radius: var(--radius-sm); padding: 1px 6px;
+  }
+  .new-replies-dot { font-size: 9px; color: var(--success); white-space: nowrap; }
   .delete-btn { margin-left: auto; color: var(--p0); border-color: rgba(255,59,59,0.3); }
   .delete-btn:hover { background: rgba(255,59,59,0.1); border-color: rgba(255,59,59,0.6); }
 

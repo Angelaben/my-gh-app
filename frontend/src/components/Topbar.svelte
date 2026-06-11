@@ -3,6 +3,7 @@
   import { activeRepo } from '../stores/repos';
   import { activePR, activeTab } from '../stores/prs';
   import {
+    activeView,
     aiProvider,
     providersStatus,
     providerPickerOpen,
@@ -150,12 +151,18 @@
   });
 
   function goHome(): void {
+    activeView.set('workspace');
     activeRepo.set(null);
     activePR.set(null);
   }
 
   function goRepo(): void {
+    activeView.set('workspace');
     activePR.set(null);
+  }
+
+  function toggleActivity(): void {
+    activeView.update((v) => (v === 'activity' ? 'workspace' : 'activity'));
   }
 
   function openPicker(): void {
@@ -193,6 +200,14 @@
   </nav>
 
   <div class="spacer"></div>
+
+  <button
+    type="button"
+    class="activity-btn"
+    class:active={$activeView === 'activity'}
+    onclick={toggleActivity}
+    title="Metrics, runs and live backend logs"
+  >⊙ Activity</button>
 
   <button
     type="button"
@@ -293,6 +308,25 @@
   }
   .logo:hover { background: rgba(255,107,53,0.08); box-shadow: var(--glow-accent); }
   .breadcrumb { display: flex; align-items: center; gap: 2px; }
+  .activity-btn {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 10px;
+    cursor: pointer;
+    margin-right: 10px;
+    transition: all var(--transition-fast);
+  }
+  .activity-btn:hover { color: var(--text-secondary); border-color: var(--glass-border-hover); }
+  .activity-btn.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
   .sep { color: var(--text-muted); margin: 0 2px; font-size: 12px; }
   .crumb {
     background: none;

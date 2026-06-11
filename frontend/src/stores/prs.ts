@@ -8,6 +8,12 @@ export const activePR = writable<PR | null>(null);
 export const activeTab = writable<'review' | 'comments'>('review');
 export const cachedReview = writable<Review | null>(null);
 export const comments = writable<Comment[]>([]);
+// IDs of comments created since the last visit (computed by the backend).
+export const newCommentIds = writable<number[]>([]);
+// "owner/repo#pr" the comments store currently holds. Guards against
+// double-fetching: each GET /pr/... advances the backend's last-visited
+// marker, which would wipe the "new" flags on the second call.
+let loadedCommentsKey: string | null = null;
 
 // Findings the user has staged for a batched "Request Changes" review.
 // Cleared when the active PR changes or a batch is published.
@@ -34,6 +40,8 @@ export function clearFindingBodyOverride(finding: import('../lib/types').Finding
 activePR.subscribe(() => {
   stagedReviewFindings.set([]);
   findingBodyOverrides.set(new Map());
+  newCommentIds.set([]);
+  loadedCommentsKey = null;
 });
 
 export function stageFinding(finding: import('../lib/types').Finding): boolean {
@@ -65,14 +73,18 @@ export async function loadPRs(owner: string, repo: string, forceRefresh = false)
 }
 
 
-export async function loadComments(owner: string, repo: string, prNumber: number): Promise<void> {
+export async function loadComments(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  force = false,
+): Promise<void> {
+  const key = `${owner}/${repo}#${prNumber}`;
+  if (!force && loadedCommentsKey === key) return;
   const data = await api.get<RawPRDetail>(`/pr/${owner}/${repo}/${prNumber}`);
-  const raw: RawComment[] = [
-    ...(data.comments ?? []),
-    ...(data.reviews ?? []).filter((r) => r.body),
-    ...(data.review_comments ?? []),
-  ];
-  comments.set(raw.map((c, i) => normalizeComment(c, i)));
+  comments.set((data.comments ?? []).map((c, i) => normalizeComment(c, i)));
+  newCommentIds.set(data.new_comment_ids ?? []);
+  loadedCommentsKey = key;
 }
 
 export async function analyzeComments(owner: string, repo: string, prNumber: number, signal?: AbortSignal): Promise<void> {
@@ -218,9 +230,15 @@ interface RawComment {
   author: string | { login: string };
   body: string;
   path?: string;
+  file?: string;
   line?: number;
   created_at: string;
   comment_type?: string;
+  in_reply_to_id?: number | null;
+  thread_id?: number | null;
+  is_ours?: boolean;
+  is_new_reply?: boolean;
+  has_new_replies?: boolean;
 }
 
 interface RawAnalysis {
@@ -235,8 +253,7 @@ interface RawAnalysis {
 
 interface RawPRDetail {
   comments?: RawComment[];
-  reviews?: RawComment[];
-  review_comments?: RawComment[];
+  new_comment_ids?: number[];
 }
 
 function normalizeComment(c: RawComment, index: number): Comment {
@@ -245,10 +262,17 @@ function normalizeComment(c: RawComment, index: number): Comment {
     id: c.id ?? index,
     author: authorStr,
     body: c.body,
-    file: c.path,
+    // Enriched comments (GET /pr/...) use `file`; raw GitHub dicts
+    // (POST /comments/.../analyze) use `path`.
+    file: c.file ?? c.path,
     line: c.line,
     created_at: c.created_at,
     comment_type: c.comment_type ?? 'pr_comment',
+    in_reply_to_id: c.in_reply_to_id,
+    thread_id: c.thread_id,
+    is_ours: c.is_ours,
+    is_new_reply: c.is_new_reply,
+    has_new_replies: c.has_new_replies,
   };
 }
 

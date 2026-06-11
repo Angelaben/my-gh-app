@@ -1,5 +1,6 @@
 """FastAPI backend — thin controllers wired to services via dependency injection."""
 
+import asyncio
 import json
 import logging
 import os
@@ -44,9 +45,13 @@ logging.basicConfig(
     format="%(levelname)s %(name)s [%(request_id)s] %(message)s",
 )
 
-from app import log_setup  # noqa: E402  — must come after basicConfig
+from app import log_buffer, log_setup  # noqa: E402  — must come after basicConfig
 if log_setup.LOG_OPS_ENABLED:
     log_setup.setup()
+
+# In-memory ring buffer backing GET /api/logs/* (Activity page). Installed
+# before the request-id filter loop below so it gets the filter too.
+_log_ring = log_buffer.install()
 
 
 class _RequestIdFilter(logging.Filter):
@@ -582,6 +587,9 @@ async def stream_review(
     """SSE endpoint that streams AI output in real-time, then emits the parsed result."""
     async def event_stream():
         try:
+            # Correlation id first: lets the UI's agent-activity console link
+            # this run to the matching backend log records (X-Request-Id).
+            yield f"data: {json.dumps({'type': 'meta', 'request_id': request_id_var.get() or ''})}\n\n"
             async for event in svc.stream_review(f"{owner}/{repo}", pr_number, model=model):
                 if isinstance(event, ReviewChunkEvent):
                     for line in event.text.splitlines(keepends=True):
@@ -759,12 +767,79 @@ def clear_review_cache(owner: str, repo: str, pr_number: int):
     return {"status": "cleared"}
 
 
-# --- Stats ---
+# --- Stats & logs (Activity page) ---
 
 @app.get("/api/stats")
 def get_stats():
     """Aggregated operational metrics (reviews run, durations, findings)."""
     return metrics_store.summarize()
+
+
+_STATS_POLL_S = 2.0
+_LOGS_POLL_S = 0.5
+_SSE_KEEPALIVE_TICKS = 15  # ~30s for stats, ~7.5s for logs
+
+
+@app.get("/api/stats/stream")
+async def stream_stats():
+    """SSE: push the aggregated stats whenever a new metrics record lands."""
+    async def event_stream():
+        # Starts as a value file_token() can never return so the first
+        # iteration always emits the current stats snapshot.
+        last_token: object = ()
+        idle_ticks = 0
+        while True:
+            token = metrics_store.file_token()
+            if token != last_token:
+                last_token = token
+                idle_ticks = 0
+                yield f"data: {json.dumps({'type': 'stats', 'stats': metrics_store.summarize()})}\n\n"
+            else:
+                idle_ticks += 1
+                if idle_ticks >= _SSE_KEEPALIVE_TICKS:
+                    idle_ticks = 0
+                    yield ": keepalive\n\n"
+            await asyncio.sleep(_STATS_POLL_S)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/logs/recent")
+def get_recent_logs(after_seq: int = 0, limit: int = 200):
+    """Recent backend log records from the in-memory ring buffer."""
+    records = _log_ring.records_after(after_seq=after_seq, limit=limit)
+    return {"records": records, "last_seq": _log_ring.last_seq}
+
+
+@app.get("/api/logs/stream")
+async def stream_logs():
+    """SSE: push new backend log records as they are emitted."""
+    async def event_stream():
+        last_seq = _log_ring.last_seq
+        idle_ticks = 0
+        while True:
+            records = _log_ring.records_after(after_seq=last_seq, limit=200)
+            if records:
+                last_seq = records[-1]["seq"]
+                idle_ticks = 0
+                for record in records:
+                    yield f"data: {json.dumps({'type': 'log', 'record': record})}\n\n"
+            else:
+                idle_ticks += 1
+                if idle_ticks >= _SSE_KEEPALIVE_TICKS:
+                    idle_ticks = 0
+                    yield ": keepalive\n\n"
+            await asyncio.sleep(_LOGS_POLL_S)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 # --- Static files ---

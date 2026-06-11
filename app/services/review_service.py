@@ -16,6 +16,7 @@ from app.domain.models import Finding, Review
 from app.ports.ai_provider import (
     AIProvider,
     ReviewChunkEvent,
+    ReviewProgressEvent,
     ReviewResultEvent,
     ReviewStreamEvent,
     ReviewWarningEvent,
@@ -214,29 +215,56 @@ class ReviewService:
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
         sem = asyncio.Semaphore(max_concurrency)
+        total = len(chunks)
 
-        async def run_one(chunk: Chunk) -> tuple[Chunk, Review | None, BaseException | None]:
+        def _files_label(chunk: Chunk) -> str:
+            label = ", ".join(chunk.files[:3])
+            if len(chunk.files) > 3:
+                label += f", +{len(chunk.files) - 3} more"
+            return label
+
+        async def run_one(
+            idx: int, chunk: Chunk
+        ) -> tuple[Chunk, Review | None, BaseException | None]:
+            tag = f"[chunk {idx}/{total}]"
             review: Review | None = None
             error: BaseException | None = None
             try:
                 async with sem:
+                    t_chunk = time.monotonic()
+                    await queue.put(ReviewProgressEvent(
+                        f"{tag} started — files: {_files_label(chunk)}"
+                    ))
                     try:
                         async for ev in self._ai.stream_review(
                             repo_full_name, pr_number, chunk.content, model=model
                         ):
-                            if isinstance(ev, (ReviewChunkEvent, ReviewWarningEvent)):
+                            if isinstance(ev, ReviewProgressEvent):
+                                # Tag the agent's own live activity lines with
+                                # the sub-call they belong to.
+                                await queue.put(ReviewProgressEvent(f"{tag} {ev.text}"))
+                            elif isinstance(ev, (ReviewChunkEvent, ReviewWarningEvent)):
                                 await queue.put(ev)
                             elif isinstance(ev, ReviewResultEvent):
                                 review = ev.review
                     except Exception as exc:  # noqa: BLE001 — propagate as warning
                         error = exc
+                    elapsed = time.monotonic() - t_chunk
+                    if review is not None:
+                        await queue.put(ReviewProgressEvent(
+                            f"{tag} done — {len(review.findings)} findings — {elapsed:.1f}s"
+                        ))
+                    elif error is not None:
+                        await queue.put(ReviewProgressEvent(
+                            f"{tag} failed after {elapsed:.1f}s ({type(error).__name__})"
+                        ))
             finally:
                 # ALWAYS push the sentinel so the consumer never deadlocks,
                 # even if this task is cancelled mid-stream.
                 await queue.put((sentinel, chunk, review, error))
             return chunk, review, error
 
-        tasks = [asyncio.create_task(run_one(c)) for c in chunks]
+        tasks = [asyncio.create_task(run_one(i, c)) for i, c in enumerate(chunks, start=1)]
         results: list[tuple[Chunk, Review | None, BaseException | None]] = []
 
         try:

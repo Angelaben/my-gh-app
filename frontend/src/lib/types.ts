@@ -52,9 +52,16 @@ export interface Comment {
   created_at: string;
   comment_type: string;
   analysis?: CommentAnalysis;
+  // Threading metadata computed by the backend (CommentService.enrich_comments)
+  in_reply_to_id?: number | null;
+  thread_id?: number | null;
+  is_ours?: boolean;
+  is_new_reply?: boolean;
+  has_new_replies?: boolean;
 }
 
 export type SSEReviewEvent =
+  | { type: 'meta'; request_id: string }
   | { type: 'chunk'; text: string }
   | { type: 'progress'; text: string }
   | { type: 'result'; review: Review }

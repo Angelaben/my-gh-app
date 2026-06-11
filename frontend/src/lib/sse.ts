@@ -45,6 +45,24 @@ export function connectReviewStream(
   return () => source.close();
 }
 
+/**
+ * Generic SSE subscription for endless streams (/api/stats/stream,
+ * /api/logs/stream). Unlike connectReviewStream there is no terminal event:
+ * EventSource's built-in retry handles transient drops, and the caller closes
+ * via the returned cleanup.
+ */
+export function connectSSE<T>(url: string, onEvent: (event: T) => void): SSECleanup {
+  const source = new EventSource(url);
+  source.onmessage = (e: MessageEvent) => {
+    try {
+      onEvent(JSON.parse(e.data) as T);
+    } catch {
+      // ignore malformed frames (keepalive comments never reach onmessage)
+    }
+  };
+  return () => source.close();
+}
+
 // Parses SSE blocks from a raw chunk string. Assumes each event uses a single `data:` line.
 export function parseSSEChunk(chunk: string): SSEReviewEvent[] {
   return chunk
