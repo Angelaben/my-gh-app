@@ -34,8 +34,6 @@
       providerPickerOpen.set(false);
       if (status.warning) {
         showToast(status.warning, 'error');
-      } else if (status.active === 'claude-code') {
-        showToast('claude-code is still experimental — expect rough edges', 'info');
       } else {
         showToast(`AI provider: ${status.active}`, 'success');
       }
@@ -55,17 +53,15 @@
     if (e.key === 'Escape') close();
   }
 
-  // Falls back to the always-on opencode provider if the status hasn't loaded
-  // yet (so the modal still works on the very first paint). claude-code is
-  // intentionally NOT in the fallback because it's gated behind
-  // ENABLE_CLAUDE_CODE on the server — once the real status loads it will
-  // appear if and only if the flag is on.
+  // Falls back to the full provider list if the status hasn't loaded yet (so
+  // the modal still works on the very first paint). Availability is assumed
+  // until the real status from /api/providers replaces it a moment later.
   const FALLBACK: ProvidersStatus = {
     active: '',
     from_env: false,
-    supported: ['opencode'],
-    available: { opencode: true },
-    clis: { opencode: 'opencode' },
+    supported: ['opencode', 'claude-code'],
+    available: { opencode: true, 'claude-code': true },
+    clis: { opencode: 'opencode', 'claude-code': 'claude' },
   };
 
   let status = $derived<ProvidersStatus>($providersStatus ?? FALLBACK);
@@ -122,7 +118,6 @@
             <div class="provider-row">
               <span class="provider-name">{name}</span>
               {#if isActive}<span class="badge active-badge">active</span>{/if}
-              {#if name === 'claude-code'}<span class="badge unstable-badge">experimental</span>{/if}
             </div>
             <div class="provider-meta">
               <span class="cli-name">{cli}</span>
@@ -132,12 +127,6 @@
                 <span class="badge missing-badge">CLI not on PATH</span>
               {/if}
             </div>
-            {#if name === 'claude-code'}
-              <div class="provider-warning">
-                ⚠ Still unstable — model discovery and Bedrock-routed deployments
-                may surface unfamiliar errors. Use opencode for production reviews.
-              </div>
-            {/if}
           </button>
         {/each}
       </div>
@@ -283,21 +272,6 @@
   .missing-badge {
     background: rgba(220, 80, 80, 0.18);
     color: rgb(240, 130, 130);
-  }
-  .unstable-badge {
-    background: rgba(255, 140, 66, 0.18);
-    color: rgb(255, 175, 110);
-  }
-  .provider-warning {
-    margin-top: 8px;
-    padding: 6px 8px;
-    font-size: 10px;
-    line-height: 1.4;
-    background: rgba(255, 140, 66, 0.08);
-    border: 1px solid rgba(255, 140, 66, 0.3);
-    border-radius: var(--radius-sm);
-    color: rgb(255, 175, 110);
-    text-align: left;
   }
   .modal-error {
     margin-top: 12px;

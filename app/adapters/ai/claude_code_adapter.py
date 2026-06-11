@@ -1,8 +1,8 @@
 """Claude Code CLI implementation of AIProvider.
 
 Mirrors the shape of :class:`OpenCodeAdapter` but shells out to the ``claude``
-(Claude Code) binary. Selectable at startup via the ``AI_PROVIDER`` env var,
-gated behind ``ENABLE_CLAUDE_CODE`` while we stabilise the integration.
+(Claude Code) binary. Selectable at startup via the ``AI_PROVIDER`` env var
+or at runtime from the provider picker.
 
 Most of the body lives in :class:`BaseCLIAIAdapter`; this module only adds
 the Claude-Code-specific behaviours that historically blocked everyday use:
@@ -53,10 +53,10 @@ _SUGGESTION_RE = re.compile(r"--model to switch to ([\w.:/-]+)")
 def list_models() -> list[str]:
     """Return the model names accepted by the installed claude CLI.
 
-    Returns the three universal aliases — ``opus``, ``sonnet``, ``haiku`` —
-    which Claude Code maps to the appropriate backend-specific model ID
-    automatically, regardless of whether the backend is the Anthropic API,
-    AWS Bedrock (any region), Vertex AI, etc.
+    Returns the universal aliases — ``fable``, ``opus``, ``sonnet``,
+    ``haiku`` — which Claude Code maps to the appropriate backend-specific
+    model ID automatically, regardless of whether the backend is the
+    Anthropic API, AWS Bedrock (any region), Vertex AI, etc.
 
     Versioned IDs such as ``claude-sonnet-4-6`` are NOT returned because they
     are Anthropic-API-specific and break on Bedrock/Vertex deployments where
@@ -65,7 +65,7 @@ def list_models() -> list[str]:
     need a specific pinned ID can enter it via the UI's free-form custom
     input, which round-trips through :func:`normalize_model_name`.
     """
-    return ["opus", "sonnet", "haiku"]
+    return ["fable", "opus", "sonnet", "haiku"]
 
 
 def parse_model_suggestion(text: str) -> str | None:

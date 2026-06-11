@@ -95,22 +95,8 @@ async def _assign_request_id(request: Request, call_next):
 
 # --- Provider registry & availability ---
 
-# The claude-code provider is gated behind ENABLE_CLAUDE_CODE because its
-# integration is still rough — see README "claude-code is disabled by default"
-# for the full background. Set ENABLE_CLAUDE_CODE=1 (or true / yes / on) to
-# expose it in the picker again.
-_TRUTHY = {"1", "true", "yes", "on"}
-_CLAUDE_CODE_ENABLED = os.environ.get("ENABLE_CLAUDE_CODE", "").strip().lower() in _TRUTHY
-
 # CLI binary expected on PATH for each provider, in display order.
-_PROVIDER_CLIS: dict[str, str] = {"opencode": "opencode"}
-if _CLAUDE_CODE_ENABLED:
-    _PROVIDER_CLIS["claude-code"] = "claude"
-else:
-    logger.info(
-        "claude-code provider is DISABLED. Set ENABLE_CLAUDE_CODE=1 to opt in. "
-        "See README for the rationale."
-    )
+_PROVIDER_CLIS: dict[str, str] = {"opencode": "opencode", "claude-code": "claude"}
 _SUPPORTED_PROVIDERS: tuple[str, ...] = tuple(_PROVIDER_CLIS.keys())
 
 
@@ -123,10 +109,6 @@ def _provider_available(name: str) -> bool:
 def _build_ai_provider(name: str) -> AIProvider:
     """Instantiate the AI provider adapter selected by name."""
     if name == "claude-code":
-        if not _CLAUDE_CODE_ENABLED:
-            raise ValueError(
-                "claude-code provider is disabled. Set ENABLE_CLAUDE_CODE=1 to enable it."
-            )
         return ClaudeCodeAdapter()
     if name == "opencode":
         return OpenCodeAdapter()
@@ -199,13 +181,7 @@ def _resolve_initial_provider() -> tuple[str, bool]:
     """
     raw = os.environ.get("AI_PROVIDER", "").strip().lower()
     if raw:
-        if raw == "claude-code" and not _CLAUDE_CODE_ENABLED:
-            logger.warning(
-                "AI_PROVIDER=claude-code requested but the claude-code provider "
-                "is disabled. Set ENABLE_CLAUDE_CODE=1 to enable it. Falling "
-                "back to auto-detect."
-            )
-        elif raw not in _SUPPORTED_PROVIDERS:
+        if raw not in _SUPPORTED_PROVIDERS:
             logger.warning(
                 "AI_PROVIDER=%r is not supported (expected one of %s); falling back to auto-detect.",
                 raw, ", ".join(_SUPPORTED_PROVIDERS),
@@ -398,12 +374,6 @@ def set_provider(data: ProviderSelect):
     """
     name = data.name.strip().lower()
     if name not in _SUPPORTED_PROVIDERS:
-        if name == "claude-code" and not _CLAUDE_CODE_ENABLED:
-            raise HTTPException(
-                status_code=400,
-                detail="claude-code provider is disabled. Restart the server with "
-                       "ENABLE_CLAUDE_CODE=1 to enable it. See README for the rationale.",
-            )
         raise HTTPException(
             status_code=400,
             detail=f"Unknown provider {name!r}. Supported: {', '.join(_SUPPORTED_PROVIDERS)}",

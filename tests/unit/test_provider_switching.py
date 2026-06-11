@@ -167,6 +167,33 @@ def test_models_returns_empty_with_warning_when_cli_missing(client):
 # --- Claude model listing ---
 
 
+def test_claude_code_supported_without_env_flag(monkeypatch):
+    """claude-code is a first-class provider: registered even when the legacy
+    ENABLE_CLAUDE_CODE env var is absent."""
+    import importlib
+
+    import app.main as main
+
+    monkeypatch.delenv("ENABLE_CLAUDE_CODE", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    main = importlib.reload(main)
+    try:
+        assert "claude-code" in main._SUPPORTED_PROVIDERS
+        assert main._PROVIDER_CLIS["claude-code"] == "claude"
+    finally:
+        importlib.reload(main)
+
+
+def test_models_endpoint_returns_universal_aliases_for_claude_code(client):
+    """Switching to claude-code exposes the universal model aliases."""
+    client.post("/api/provider", json={"name": "claude-code"})
+    res = client.get("/api/models")
+    assert res.status_code == 200
+    assert res.json()["models"] == ["fable", "opus", "sonnet", "haiku"]
+    # Restore.
+    client.post("/api/provider", json={"name": "opencode"})
+
+
 def test_models_endpoint_returns_claude_models(client, monkeypatch):
     """GET /api/models for claude-code delegates to the adapter's list_models()."""
     import app.adapters.ai.claude_code_adapter as _cc
