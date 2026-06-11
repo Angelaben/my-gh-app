@@ -2,13 +2,14 @@
   import { onMount } from 'svelte';
   import { activeRepo, loadRepos } from './stores/repos';
   import { activePR, cachedReview, comments, activeTab } from './stores/prs';
-  import { toasts } from './stores/ui';
+  import { toasts, activeView } from './stores/ui';
 
   import Topbar from './components/Topbar.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import PRList from './components/PRList.svelte';
   import PRDetail from './components/PRDetail.svelte';
+  import ActivityPage from './components/ActivityPage.svelte';
   import ProviderModal from './components/ProviderModal.svelte';
   import Toast from './components/Toast.svelte';
 
@@ -27,7 +28,9 @@
   <Topbar />
   <Sidebar />
   <main class="main-content">
-    {#if !$activeRepo}
+    {#if $activeView === 'activity'}
+      <ActivityPage />
+    {:else if !$activeRepo}
       <EmptyState />
     {:else if !$activePR}
       {#key $activeRepo.full_name}
