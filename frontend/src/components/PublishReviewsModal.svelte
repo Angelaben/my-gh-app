@@ -2,13 +2,17 @@
   import type { Repo, PR } from '../lib/types';
   import {
     publishReviewsModalOpen,
-    stagedReviewFindings,
+    stagedFindingsByPR,
     publishStagedReview,
     unstageFinding,
   } from '../stores/prs';
+  import { prKey } from '../stores/reviewSessions';
   import { showToast } from '../stores/ui';
 
   let { repo, pr }: { repo: Repo; pr: PR } = $props();
+
+  const prk = $derived(prKey(repo.owner, repo.name, pr.number));
+  const staged = $derived($stagedFindingsByPR.get(prk) ?? []);
 
   let summary = $state('');
   let busy = $state(false);
@@ -73,11 +77,11 @@
         comments; the rest go into the review body.
       </p>
 
-      {#if $stagedReviewFindings.length === 0}
+      {#if staged.length === 0}
         <p class="empty">No findings staged. Click <strong>+ Add to review</strong> on findings to stage them.</p>
       {:else}
         <div class="staged-list">
-          {#each $stagedReviewFindings as finding, i (i)}
+          {#each staged as finding, i (i)}
             <div class="staged-item">
               <span class="badge badge-{finding.priority.toLowerCase()}">{finding.priority}</span>
               <div class="staged-body">
@@ -90,7 +94,7 @@
               </div>
               <button
                 class="btn btn-sm btn-ghost"
-                onclick={() => unstageFinding(finding)}
+                onclick={() => unstageFinding(prk, finding)}
                 disabled={busy}
                 aria-label="Remove from review"
               >
@@ -122,9 +126,9 @@
         <button
           class="btn btn-sm btn-warn"
           onclick={handlePublish}
-          disabled={busy || $stagedReviewFindings.length === 0}
+          disabled={busy || staged.length === 0}
         >
-          {busy ? 'Publishing…' : `⚠ Publish as Request Changes (${$stagedReviewFindings.length})`}
+          {busy ? 'Publishing…' : `⚠ Publish as Request Changes (${staged.length})`}
         </button>
       </div>
     </div>

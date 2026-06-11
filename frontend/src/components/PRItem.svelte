@@ -1,7 +1,21 @@
 <script lang="ts">
-  import type { PR } from '../lib/types';
+  import type { PR, Repo } from '../lib/types';
+  import { reviewSessions, prKey } from '../stores/reviewSessions';
 
-  let { pr, onselect }: { pr: PR; onselect: () => void } = $props();
+  let { pr, repo, onselect }: { pr: PR; repo: Repo; onselect: () => void } = $props();
+
+  const session = $derived($reviewSessions.get(prKey(repo.owner, repo.name, pr.number)));
+  const reviewState = $derived(
+    !session
+      ? null
+      : session.status === 'connecting' || session.status === 'streaming'
+        ? 'running'
+        : session.status === 'error'
+          ? 'error'
+          : session.review
+            ? 'done'
+            : null
+  );
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -14,6 +28,17 @@
     <span class="pr-status {pr.is_draft ? 'status-draft' : 'status-ready'}">
       {pr.is_draft ? 'DRAFT' : 'READY'}
     </span>
+    {#if reviewState === 'running'}
+      <span class="pr-status review-running" title="AI review running in the background">
+        <span class="mini-spinner"></span> REVIEWING
+      </span>
+    {:else if reviewState === 'done'}
+      <span class="pr-status review-done" title="AI review complete">
+        ✓ {session?.review?.findings.length ?? 0} FINDING{(session?.review?.findings.length ?? 0) === 1 ? '' : 'S'}
+      </span>
+    {:else if reviewState === 'error'}
+      <span class="pr-status review-failed" title={session?.errorMsg || 'AI review failed'}>✕ FAILED</span>
+    {/if}
     <span class="pr-title">{pr.title}</span>
   </div>
   <div class="pr-meta">
@@ -59,6 +84,30 @@
     background: color-mix(in srgb, var(--success) 12%, transparent);
     color: var(--success);
     border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
+  }
+  .review-running {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .review-done {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
+  }
+  .review-failed {
+    background: color-mix(in srgb, var(--p0) 12%, transparent);
+    color: var(--p0);
+    border: 1px solid color-mix(in srgb, var(--p0) 30%, transparent);
+  }
+  .mini-spinner {
+    width: 8px; height: 8px;
+    border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
   }
   .pr-number { font-size: 11px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
   .pr-title { font-size: 12px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

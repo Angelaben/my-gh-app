@@ -58,7 +58,7 @@
   {:else}
     <div class="list">
       {#each $prs as pr (pr.number)}
-        <PRItem {pr} onselect={() => handleSelect(pr)} />
+        <PRItem {pr} {repo} onselect={() => handleSelect(pr)} />
       {/each}
     </div>
   {/if}
