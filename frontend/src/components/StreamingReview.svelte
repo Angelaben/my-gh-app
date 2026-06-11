@@ -1,45 +1,47 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { connectReviewStream } from '../lib/sse';
-  import { cachedReview } from '../stores/prs';
-  import { showToast, selectedModel, aiProvider } from '../stores/ui';
-  import type { Finding, Repo, PR, SSEReviewEvent } from '../lib/types';
+  import { reviewSessions, prKey, stopReview, type SessionStatus } from '../stores/reviewSessions';
+  import { aiProvider } from '../stores/ui';
+  import type { Repo, PR } from '../lib/types';
   import FindingCard from './FindingCard.svelte';
 
-  let { repo, pr, rerun = false, oncomplete }: { repo: Repo; pr: PR; rerun?: boolean; oncomplete?: () => void } = $props();
+  let { repo, pr }: { repo: Repo; pr: PR } = $props();
 
-  type Status = 'connecting' | 'streaming' | 'done' | 'error';
+  // Pure renderer: the SSE connection and all streaming state live in the
+  // per-PR session store, so unmounting this component (PR switch, Activity
+  // page…) never interrupts the review.
+  const key = $derived(prKey(repo.owner, repo.name, pr.number));
+  const session = $derived($reviewSessions.get(key));
+  const status = $derived<SessionStatus>(session?.status ?? 'connecting');
+  const findings = $derived(session?.review?.findings ?? []);
+  const chunkLog = $derived(session?.chunkLog ?? '');
+  const errorMsg = $derived(session?.errorMsg ?? '');
+  const warnings = $derived(session?.warnings ?? []);
+  const chunkCount = $derived(session?.chunkCount ?? 0);
+  const totalBytes = $derived(session?.totalBytes ?? 0);
+  const latestProgress = $derived(session?.latestProgress ?? '');
+  const activity = $derived(session?.activity ?? []);
+  const requestId = $derived(session?.requestId ?? '');
 
-  let status = $state<Status>('connecting');
-  let findings = $state<Finding[]>([]);
-  let chunkLog = $state('');
-  let errorMsg = $state('');
-  let warnings = $state<string[]>([]);
   let showWarnings = $state(false);
-  let cleanup: (() => void) | null = null;
-
-  // Progress tracking
-  let chunkCount = $state(0);
-  let totalBytes = $state(0);
-  let elapsedSec = $state(0);
-  let _startTime = 0;
-  let _timerId: ReturnType<typeof setInterval> | null = null;
-  let latestProgress = $state('');
-
-  // Agent activity console: live trace of what the CLI subprocess is doing
-  // (stderr progress lines, sub-call lifecycle, warnings).
-  type ActivityEntry = { offset: string; kind: 'progress' | 'lifecycle' | 'warning' | 'meta'; text: string };
-  const ACTIVITY_CAP = 300;
-  let activity = $state<ActivityEntry[]>([]);
-  let requestId = $state('');
   let consoleOpen = $state(true);
   let consoleEl = $state<HTMLElement | null>(null);
 
-  function pushActivity(kind: ActivityEntry['kind'], text: string) {
-    const sec = _startTime ? (Date.now() - _startTime) / 1000 : 0;
-    const next = [...activity, { offset: `${sec.toFixed(1)}s`, kind, text }];
-    activity = next.length > ACTIVITY_CAP ? next.slice(next.length - ACTIVITY_CAP) : next;
-  }
+  // Elapsed-time ticker — display only; the session stores start/end times.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (status !== 'connecting' && status !== 'streaming') return;
+    const id = setInterval(() => { now = Date.now(); }, 500);
+    return () => clearInterval(id);
+  });
+  const elapsedSec = $derived(
+    !session || !session.startTime
+      ? 0
+      : Math.max(0, ((session.endTime ?? now) - session.startTime) / 1000)
+  );
+
+  $effect(() => {
+    if (status === 'done') consoleOpen = false;
+  });
 
   // Auto-scroll the console to the latest entry.
   $effect(() => {
@@ -75,65 +77,12 @@
       : `${Math.floor(elapsedSec / 60)}m${Math.floor(elapsedSec % 60)}s`
   );
 
-  onMount(() => {
-    cleanup = connectReviewStream(repo.owner, repo.name, pr.number, handleEvent, rerun, $selectedModel || undefined);
-  });
-
-  onDestroy(() => {
-    cleanup?.();
-    if (_timerId !== null) clearInterval(_timerId);
-  });
-
-  function _startTimer() {
-    if (_timerId !== null) return;
-    _startTime = Date.now();
-    _timerId = setInterval(() => { elapsedSec = (Date.now() - _startTime) / 1000; }, 500);
-  }
-
-  function _stopTimer() {
-    if (_timerId !== null) { clearInterval(_timerId); _timerId = null; }
-    elapsedSec = (Date.now() - _startTime) / 1000;
-  }
-
-  function handleEvent(event: SSEReviewEvent) {
-    if (event.type === 'meta') {
-      requestId = event.request_id;
-      if (requestId) pushActivity('meta', `request id: ${requestId}`);
-    } else if (event.type === 'chunk') {
-      if (status === 'connecting') { status = 'streaming'; _startTimer(); }
-      chunkCount++;
-      totalBytes += event.text.length;
-      chunkLog += event.text;
-    } else if (event.type === 'progress') {
-      latestProgress = event.text;
-      if (_timerId === null) _startTimer();
-      pushActivity(event.text.startsWith('[chunk ') ? 'lifecycle' : 'progress', event.text);
-    } else if (event.type === 'result') {
-      _stopTimer();
-      findings = event.review.findings;
-      cachedReview.set(event.review);
-      status = 'done';
-      consoleOpen = false;
-      oncomplete?.();
-    } else if (event.type === 'warning') {
-      warnings = [...warnings, ...event.lines];
-      for (const line of event.lines) pushActivity('warning', line);
-    } else if (event.type === 'done') {
-      if (status !== 'done') { _stopTimer(); status = 'done'; consoleOpen = false; oncomplete?.(); }
-    } else if (event.type === 'error') {
-      _stopTimer();
-      errorMsg = event.message;
-      status = 'error';
-      showToast(event.message, 'error');
-    }
-  }
-
   const PROVIDER_LABELS: Record<string, string> = {
     'claude-code': 'Claude Code',
     'opencode': 'OpenCode',
   };
   const providerLabel = $derived(PROVIDER_LABELS[$aiProvider] ?? ($aiProvider || 'AI provider'));
-  const statusLabel = $derived<Record<Status, string>>({
+  const statusLabel = $derived<Record<SessionStatus, string>>({
     connecting: `Connecting to ${providerLabel}…`,
     streaming: 'Streaming…',
     done: 'Review complete',
@@ -164,7 +113,7 @@
     </div>
     <div class="header-right">
       {#if status === 'connecting' || status === 'streaming'}
-        <button class="btn btn-danger btn-sm" onclick={() => { cleanup?.(); status = 'done'; }}>⏹ Stop</button>
+        <button class="btn btn-danger btn-sm" onclick={() => stopReview(key)}>⏹ Stop</button>
       {/if}
       {#if warnings.length > 0}
         <div class="warning-wrap">

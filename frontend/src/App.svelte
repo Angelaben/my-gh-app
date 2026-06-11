@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { activeRepo, loadRepos } from './stores/repos';
-  import { activePR, cachedReview, comments, activeTab } from './stores/prs';
+  import { activePR, comments, activeTab } from './stores/prs';
   import { toasts, activeView } from './stores/ui';
 
   import Topbar from './components/Topbar.svelte';
@@ -16,9 +16,10 @@
   onMount(() => { loadRepos(); });
 
   $effect(() => {
-    // Clear stale review/comment data whenever the active PR changes.
+    // Clear stale comment data whenever the active PR changes. Review state
+    // lives in per-PR sessions (stores/reviewSessions.ts) and must survive
+    // PR switches so background reviews keep running.
     $activePR;
-    cachedReview.set(null);
     comments.set([]);
     activeTab.set('review');
   });

@@ -1,9 +1,9 @@
 <script lang="ts">
   import {
-    cachedReview,
-    stagedReviewFindings,
+    stagedFindingsByPR,
     publishReviewsModalOpen,
   } from '../stores/prs';
+  import { reviewSessions, prKey, startReview } from '../stores/reviewSessions';
   import type { Repo, PR, Finding } from '../lib/types';
   import StreamingReview from './StreamingReview.svelte';
   import FindingCard from './FindingCard.svelte';
@@ -11,13 +11,22 @@
 
   let { repo, pr }: { repo: Repo; pr: PR } = $props();
 
-  type ViewMode = 'idle' | 'streaming' | 'results';
   type Priority = 'P0' | 'P1' | 'P2' | 'P3';
 
   const ALL_PRIORITIES: Priority[] = ['P0', 'P1', 'P2', 'P3'];
 
-  let mode = $state<ViewMode>('idle');
-  let rerun = $state(false);
+  // View mode is derived from the PR's session, never from local state:
+  // re-opening this tab while a review runs in the background must land back
+  // on the live streaming view, not on the idle "Run Review" page.
+  const key = $derived(prKey(repo.owner, repo.name, pr.number));
+  const session = $derived($reviewSessions.get(key));
+  const running = $derived(session?.status === 'connecting' || session?.status === 'streaming');
+  const review = $derived(session?.review ?? null);
+  const mode = $derived(
+    running ? 'streaming' : session?.status === 'error' ? 'error' : review ? 'results' : 'idle'
+  );
+  const staged = $derived($stagedFindingsByPR.get(key) ?? []);
+
   let activePriorities = $state<Set<Priority>>(new Set(ALL_PRIORITIES));
 
   function togglePriority(p: Priority) {
@@ -40,14 +49,14 @@
   }
 
   let filteredFindings = $derived(
-    ($cachedReview?.findings ?? []).filter((f: Finding) =>
+    (review?.findings ?? []).filter((f: Finding) =>
       activePriorities.has(f.priority as Priority)
     )
   );
 
   let priorityCounts = $derived(() => {
     const counts: Record<Priority, number> = { P0: 0, P1: 0, P2: 0, P3: 0 };
-    for (const f of $cachedReview?.findings ?? []) {
+    for (const f of review?.findings ?? []) {
       if (f.priority in counts) counts[f.priority as Priority]++;
     }
     return counts;
@@ -55,47 +64,36 @@
 
   let allSelected = $derived(activePriorities.size === ALL_PRIORITIES.length);
 
-  // Transition idle → results when a cached review is already present on mount.
-  $effect(() => {
-    if ($cachedReview && mode === 'idle') {
-      mode = 'results';
-    }
-  });
-
-  function startReview(isRerun = false) {
-    rerun = isRerun;
-    mode = 'streaming';
-    cachedReview.set(null);
+  function runReview(isRerun = false) {
     activePriorities = new Set(ALL_PRIORITIES);
-  }
-
-  function handleReviewComplete() {
-    mode = 'results';
+    startReview(repo, pr, isRerun);
   }
 </script>
 
 <div class="review-tab">
   <div class="actions">
     {#if mode === 'idle'}
-      <button class="btn btn-accent" onclick={() => startReview(false)}>▶ Run Review</button>
+      <button class="btn btn-accent" onclick={() => runReview(false)}>▶ Run Review</button>
     {:else if mode === 'results'}
-      <button class="btn btn-sm" onclick={() => startReview(true)}>↻ Re-run</button>
+      <button class="btn btn-sm" onclick={() => runReview(true)}>↻ Re-run</button>
       <span class="cache-note">Showing cached review</span>
+    {:else if mode === 'error'}
+      <button class="btn btn-sm" onclick={() => runReview(true)}>↻ Retry</button>
     {:else if mode === 'streaming'}
       <span style="color:var(--text-muted);font-size:12px">Review in progress…</span>
     {/if}
   </div>
 
-  {#if mode === 'streaming'}
-    <StreamingReview {repo} {pr} {rerun} oncomplete={handleReviewComplete} />
-  {:else if mode === 'results' && $cachedReview}
+  {#if mode === 'streaming' || mode === 'error'}
+    <StreamingReview {repo} {pr} />
+  {:else if mode === 'results' && review}
     <div class="filter-bar">
       <button
         class="filter-btn filter-all"
         class:active={allSelected}
         onclick={selectAll}
         title="Show all priorities"
-      >All <span class="filter-count">{$cachedReview.findings.length}</span></button>
+      >All <span class="filter-count">{review.findings.length}</span></button>
       {#each ALL_PRIORITIES as p (p)}
         {@const count = priorityCounts()[p]}
         <button
@@ -123,15 +121,15 @@
       <button
         class="btn btn-warn"
         onclick={() => publishReviewsModalOpen.set(true)}
-        disabled={$stagedReviewFindings.length === 0}
+        disabled={staged.length === 0}
         title="Publish all staged findings as a single Request Changes review"
       >
         ⚠ Publish reviews
-        {#if $stagedReviewFindings.length > 0}
-          <span class="badge-count">{$stagedReviewFindings.length}</span>
+        {#if staged.length > 0}
+          <span class="badge-count">{staged.length}</span>
         {/if}
       </button>
-      {#if $stagedReviewFindings.length === 0}
+      {#if staged.length === 0}
         <span class="hint">Click <strong>+ Add to review</strong> on findings to stage them.</span>
       {/if}
     </div>

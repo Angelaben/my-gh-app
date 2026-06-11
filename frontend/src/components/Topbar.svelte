@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { activeRepo } from '../stores/repos';
   import { activePR, activeTab } from '../stores/prs';
+  import { runningReviewCount } from '../stores/reviewSessions';
   import {
     activeView,
     aiProvider,
@@ -201,6 +202,13 @@
 
   <div class="spacer"></div>
 
+  {#if $runningReviewCount > 0}
+    <span class="running-reviews" title="{$runningReviewCount} review(s) running in the background">
+      <span class="running-spinner"></span>
+      {$runningReviewCount} review{$runningReviewCount === 1 ? '' : 's'} running
+    </span>
+  {/if}
+
   <button
     type="button"
     class="activity-btn"
@@ -308,6 +316,25 @@
   }
   .logo:hover { background: rgba(255,107,53,0.08); box-shadow: var(--glow-accent); }
   .breadcrumb { display: flex; align-items: center; gap: 2px; }
+  .running-reviews {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-right: 10px; padding: 4px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .running-spinner {
+    width: 9px; height: 9px;
+    border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
   .activity-btn {
     background: transparent;
     border: 1px solid var(--glass-border);

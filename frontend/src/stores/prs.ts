@@ -1,12 +1,12 @@
 import { writable, get } from 'svelte/store';
-import type { PR, Review, Comment, CommentAnalysis } from '../lib/types';
+import type { PR, Comment, CommentAnalysis } from '../lib/types';
 import { api } from '../lib/api';
 import { selectedModel } from './ui';
+import { prKey } from './reviewSessions';
 
 export const prs = writable<PR[]>([]);
 export const activePR = writable<PR | null>(null);
 export const activeTab = writable<'review' | 'comments'>('review');
-export const cachedReview = writable<Review | null>(null);
 export const comments = writable<Comment[]>([]);
 // IDs of comments created since the last visit (computed by the backend).
 export const newCommentIds = writable<number[]>([]);
@@ -15,51 +15,57 @@ export const newCommentIds = writable<number[]>([]);
 // marker, which would wipe the "new" flags on the second call.
 let loadedCommentsKey: string | null = null;
 
-// Findings the user has staged for a batched "Request Changes" review.
-// Cleared when the active PR changes or a batch is published.
-export const stagedReviewFindings = writable<import('../lib/types').Finding[]>([]);
+// Findings staged for a batched "Request Changes" review, keyed by
+// "owner/repo#pr" so each PR keeps its own staging across PR switches.
+export const stagedFindingsByPR = writable<Map<string, import('../lib/types').Finding[]>>(new Map());
 export const publishReviewsModalOpen = writable<boolean>(false);
 
-// Per-finding body overrides: lets users edit AI-generated text before publishing.
-// Keys are finding identity strings; values are the custom markdown body.
+// Per-finding body overrides: lets users edit AI-generated text before
+// publishing. Keys are PR-namespaced finding identity strings, so overrides
+// for different PRs never collide and survive PR switches.
 export const findingBodyOverrides = writable<Map<string, string>>(new Map());
 
-function findingKey(f: import('../lib/types').Finding): string {
-  return `${f.priority}:${f.title}:${f.file ?? ''}:${f.line ?? ''}`;
+export function findingOverrideKey(prk: string, f: import('../lib/types').Finding): string {
+  return `${prk}|${f.priority}:${f.title}:${f.file ?? ''}:${f.line ?? ''}`;
 }
 
-export function setFindingBodyOverride(finding: import('../lib/types').Finding, body: string): void {
-  findingBodyOverrides.update((m: Map<string, string>) => new Map(m).set(findingKey(finding), body));
+export function setFindingBodyOverride(prk: string, finding: import('../lib/types').Finding, body: string): void {
+  findingBodyOverrides.update((m: Map<string, string>) => new Map(m).set(findingOverrideKey(prk, finding), body));
 }
 
-export function clearFindingBodyOverride(finding: import('../lib/types').Finding): void {
-  findingBodyOverrides.update((m: Map<string, string>) => { const n = new Map(m); n.delete(findingKey(finding)); return n; });
+export function clearFindingBodyOverride(prk: string, finding: import('../lib/types').Finding): void {
+  findingBodyOverrides.update((m: Map<string, string>) => { const n = new Map(m); n.delete(findingOverrideKey(prk, finding)); return n; });
 }
 
-// Reset staging and overrides when the active PR changes — both are per-PR.
+// Comment "new since last visit" tracking is tied to the open PR.
 activePR.subscribe(() => {
-  stagedReviewFindings.set([]);
-  findingBodyOverrides.set(new Map());
   newCommentIds.set([]);
   loadedCommentsKey = null;
 });
 
-export function stageFinding(finding: import('../lib/types').Finding): boolean {
+function sameFinding(a: import('../lib/types').Finding, b: import('../lib/types').Finding): boolean {
+  return a.title === b.title && a.priority === b.priority && a.file === b.file && a.line === b.line;
+}
+
+export function stageFinding(prk: string, finding: import('../lib/types').Finding): boolean {
   let added = false;
-  stagedReviewFindings.update((list) => {
-    if (list.some((f) => f.title === finding.title && f.priority === finding.priority && f.file === finding.file && f.line === finding.line)) {
-      return list;
-    }
+  stagedFindingsByPR.update((m) => {
+    const list = m.get(prk) ?? [];
+    if (list.some((f) => sameFinding(f, finding))) return m;
     added = true;
-    return [...list, finding];
+    return new Map(m).set(prk, [...list, finding]);
   });
   return added;
 }
 
-export function unstageFinding(finding: import('../lib/types').Finding): void {
-  stagedReviewFindings.update((list) =>
-    list.filter((f) => !(f.title === finding.title && f.priority === finding.priority && f.file === finding.file && f.line === finding.line))
-  );
+export function unstageFinding(prk: string, finding: import('../lib/types').Finding): void {
+  stagedFindingsByPR.update((m) => {
+    const list = (m.get(prk) ?? []).filter((f) => !sameFinding(f, finding));
+    const next = new Map(m);
+    if (list.length === 0) next.delete(prk);
+    else next.set(prk, list);
+    return next;
+  });
 }
 
 export async function loadPRs(owner: string, repo: string, forceRefresh = false): Promise<void> {
@@ -135,7 +141,7 @@ export async function publishFinding(
   finding: import('../lib/types').Finding
 ): Promise<void> {
   const fullRepo = `${owner}/${repo}`;
-  const bodyOverride = get(findingBodyOverrides).get(findingKey(finding));
+  const bodyOverride = get(findingBodyOverrides).get(findingOverrideKey(prKey(owner, repo, prNumber), finding));
   const body = bodyOverride ?? formatFindingBody(finding);
 
   // P1 findings escalate to a single-finding REQUEST_CHANGES review so the PR
@@ -184,7 +190,8 @@ export async function publishStagedReview(
   reviewBody: string
 ): Promise<{ warning?: string }> {
   const fullRepo = `${owner}/${repo}`;
-  const staged = get(stagedReviewFindings);
+  const prk = prKey(owner, repo, prNumber);
+  const staged = get(stagedFindingsByPR).get(prk) ?? [];
   if (staged.length === 0) {
     throw new Error('No findings staged for review');
   }
@@ -195,7 +202,7 @@ export async function publishStagedReview(
   const orphanLines: string[] = [];
   const overrides = get(findingBodyOverrides);
   for (const finding of staged) {
-    const bodyOverride = overrides.get(findingKey(finding));
+    const bodyOverride = overrides.get(findingOverrideKey(prk, finding));
     const body = bodyOverride ?? formatFindingBody(finding, false);
     if (finding.file && finding.line != null) {
       inlineComments.push({ path: finding.file, line: finding.line, body });
@@ -219,7 +226,11 @@ export async function publishStagedReview(
     event: 'REQUEST_CHANGES',
     comments: inlineComments,
   });
-  stagedReviewFindings.set([]);
+  stagedFindingsByPR.update((m) => {
+    const next = new Map(m);
+    next.delete(prk);
+    return next;
+  });
   return { warning: result.warning };
 }
 

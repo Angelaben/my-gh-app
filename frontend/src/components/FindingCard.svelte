@@ -4,12 +4,14 @@
     publishFinding,
     stageFinding,
     unstageFinding,
-    stagedReviewFindings,
+    stagedFindingsByPR,
     formatFindingBody,
     setFindingBodyOverride,
     clearFindingBodyOverride,
     findingBodyOverrides,
+    findingOverrideKey,
   } from '../stores/prs';
+  import { prKey } from '../stores/reviewSessions';
   import { showToast } from '../stores/ui';
 
   let { finding, repo, pr, index = 0 }: { finding: Finding; repo: Repo; pr: PR; index?: number } = $props();
@@ -19,8 +21,10 @@
   let editing = $state(false);
   let editBody = $state('');
 
+  const prk = $derived(prKey(repo.owner, repo.name, pr.number));
+
   let isStaged = $derived(
-    $stagedReviewFindings.some(
+    ($stagedFindingsByPR.get(prk) ?? []).some(
       (f) =>
         f.title === finding.title &&
         f.priority === finding.priority &&
@@ -30,7 +34,7 @@
   );
 
   let hasOverride = $derived(
-    $findingBodyOverrides.has(`${finding.priority}:${finding.title}:${finding.file ?? ''}:${finding.line ?? ''}`)
+    $findingBodyOverrides.has(findingOverrideKey(prk, finding))
   );
 
   async function handlePublish() {
@@ -63,23 +67,22 @@
 
   function handleAddToReview() {
     if (isStaged) {
-      unstageFinding(finding);
+      unstageFinding(prk, finding);
       showToast('Removed from review', 'info');
     } else {
-      stageFinding(finding);
+      stageFinding(prk, finding);
       showToast('Added to review', 'success');
     }
   }
 
   function startEdit() {
-    const currentKey = `${finding.priority}:${finding.title}:${finding.file ?? ''}:${finding.line ?? ''}`;
-    editBody = $findingBodyOverrides.get(currentKey) ?? formatFindingBody(finding);
+    editBody = $findingBodyOverrides.get(findingOverrideKey(prk, finding)) ?? formatFindingBody(finding);
     editing = true;
   }
 
   function saveEdit() {
     if (editBody.trim()) {
-      setFindingBodyOverride(finding, editBody.trim());
+      setFindingBodyOverride(prk, finding, editBody.trim());
       showToast('Comment saved', 'info');
     }
     editing = false;
@@ -91,7 +94,7 @@
   }
 
   function resetToAI() {
-    clearFindingBodyOverride(finding);
+    clearFindingBodyOverride(prk, finding);
     editing = false;
     editBody = '';
     showToast('Reset to AI-generated text', 'info');
