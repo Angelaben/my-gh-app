@@ -35,6 +35,18 @@ class TestRecord:
         assert isinstance(data["model"], str)
 
 
+class TestFileToken:
+    def test_none_when_missing(self, metrics_file: Path):
+        assert metrics.file_token() is None
+
+    def test_changes_after_record(self, metrics_file: Path):
+        metrics.record("review", pr=1)
+        first = metrics.file_token()
+        assert first is not None
+        metrics.record("review", pr=2)
+        assert metrics.file_token() != first
+
+
 class TestLoad:
     def test_empty_when_file_missing(self, metrics_file: Path):
         assert metrics.load() == []

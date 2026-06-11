@@ -430,6 +430,60 @@ class TestDedupeFindings:
         assert len(_dedupe_findings(findings)) == 3
 
 
+class TestSplitProgressEvents:
+    """Agent sub-call lifecycle is surfaced as ReviewProgressEvent in split mode."""
+
+    async def test_chunk_lifecycle_progress_emitted(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.ports.ai_provider import ReviewProgressEvent
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "100")
+        vcs_port.get_diff.return_value = (
+            "diff --git a/a.py b/a.py\n" + "a" * 80 + "\n"
+            "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
+        )
+
+        async def mock_stream(repo, pr, sub_diff, model=None):
+            yield ReviewProgressEvent("> Reading context…")
+            yield ReviewResultEvent(
+                Review(summary="s", findings=[Finding(priority="P2", title="t", description="d")])
+            )
+
+        ai_provider.stream_review = mock_stream
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        progress = [e.text for e in events if isinstance(e, ReviewProgressEvent)]
+
+        assert sum("started — files:" in p for p in progress) == 2
+        assert sum("done — 1 findings" in p for p in progress) == 2
+        # The agent's own live activity lines are tagged with their sub-call.
+        tagged = [p for p in progress if "> Reading context…" in p]
+        assert len(tagged) == 2
+        assert all(p.startswith("[chunk ") for p in tagged)
+
+    async def test_failed_chunk_emits_failure_progress(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.domain.exceptions import ProviderError
+        from app.ports.ai_provider import ReviewProgressEvent
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "100")
+        vcs_port.get_diff.return_value = (
+            "diff --git a/a.py b/a.py\n" + "a" * 80 + "\n"
+            "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
+        )
+
+        async def mock_stream(repo, pr, sub_diff, model=None):
+            if "a.py" in sub_diff:
+                raise ProviderError("boom")
+            yield ReviewResultEvent(Review(summary="ok", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        progress = [e.text for e in events if isinstance(e, ReviewProgressEvent)]
+        assert any("failed after" in p and "ProviderError" in p for p in progress)
+
+
 class TestReviewProvenance:
     """Head-SHA stamping on fresh reviews and the staleness check."""
 

@@ -37,6 +37,30 @@ _STANDARD_ATTRS = frozenset(vars(logging.makeLogRecord({}))) | {
 }
 
 
+def record_to_dict(record: logging.LogRecord) -> dict:
+    """Flatten a LogRecord into a JSON-safe dict (base fields + extras).
+
+    Shared by the JSONL file formatter and the in-memory ring buffer
+    (app.log_buffer) so both surfaces show identical records. The SAFETY
+    CONTRACT above applies to anything passed via ``extra=``.
+    """
+    payload: dict = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
+        "ms": int(record.msecs),
+        "level": record.levelname,
+        "logger": record.name,
+        "msg": record.getMessage(),
+    }
+    request_id = getattr(record, "request_id", None)
+    if request_id and request_id != "-":
+        payload["request_id"] = request_id
+    for key, value in record.__dict__.items():
+        if key in _STANDARD_ATTRS or key == "request_id" or key.startswith("_"):
+            continue
+        payload[key] = value
+    return payload
+
+
 class _JsonLineFormatter(logging.Formatter):
     """One compact JSON object per log record — grep- and jq-friendly.
 
@@ -46,21 +70,7 @@ class _JsonLineFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        payload: dict = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-            "ms": int(record.msecs),
-            "level": record.levelname,
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        request_id = getattr(record, "request_id", None)
-        if request_id and request_id != "-":
-            payload["request_id"] = request_id
-        for key, value in record.__dict__.items():
-            if key in _STANDARD_ATTRS or key == "request_id" or key.startswith("_"):
-                continue
-            payload[key] = value
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        return json.dumps(record_to_dict(record), ensure_ascii=False, default=str)
 
 
 def setup() -> None:
