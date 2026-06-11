@@ -76,8 +76,8 @@ class TestNormalizeModelName:
 
 
 class TestListModels:
-    def test_returns_three_universal_aliases(self):
-        assert list_models() == ["opus", "sonnet", "haiku"]
+    def test_returns_universal_aliases(self):
+        assert list_models() == ["fable", "opus", "sonnet", "haiku"]
 
 
 # ---- parse_model_suggestion -----------------------------------------------

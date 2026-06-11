@@ -7,6 +7,18 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`claude-code` is re-enabled as a first-class provider.** The
+  `ENABLE_CLAUDE_CODE` feature flag is removed: the provider is always
+  registered, listed in the picker, and selectable via `AI_PROVIDER` or the
+  UI. Availability is reported per provider by checking the `claude` binary
+  on `PATH`, exactly like `opencode`. The "experimental" badge and warning
+  were removed from the provider picker.
+- **Claude Code model list now includes `fable`.** The model picker exposes
+  the universal aliases `fable`, `opus`, `sonnet`, `haiku`; pinned IDs
+  (including Bedrock inference profiles) still go through the free-form
+  custom input.
+
 ### Added
 - **Hexagonal AI-adapter base class.** A new `BaseCLIAIAdapter`
   (`app/adapters/ai/_base.py`) consolidates the subprocess / streaming /

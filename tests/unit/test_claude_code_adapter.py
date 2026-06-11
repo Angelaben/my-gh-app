@@ -56,8 +56,8 @@ class TestParseReviewOutput:
 
 
 class TestListModels:
-    def test_returns_three_universal_aliases(self):
-        assert list_models() == ["opus", "sonnet", "haiku"]
+    def test_returns_universal_aliases(self):
+        assert list_models() == ["fable", "opus", "sonnet", "haiku"]
 
     def test_does_not_contain_versioned_ids(self):
         # Versioned IDs (e.g. "claude-sonnet-4-6") are backend-specific and
