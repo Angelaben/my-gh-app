@@ -1,10 +1,16 @@
 <script lang="ts">
-  import { activeTab } from '../stores/prs';
+  import { activeTab, loadComments, newCommentIds } from '../stores/prs';
   import type { Repo, PR } from '../lib/types';
   import ReviewTab from './ReviewTab.svelte';
   import CommentsTab from './CommentsTab.svelte';
 
   let { repo, pr }: { repo: Repo; pr: PR } = $props();
+
+  // Eagerly load comments when a PR opens so the tab badge can show how many
+  // are new since the last visit (loadComments is idempotent per PR).
+  $effect(() => {
+    loadComments(repo.owner, repo.name, pr.number).catch(() => {});
+  });
 </script>
 
 <div class="pr-detail">
@@ -25,7 +31,9 @@
 
   <div class="tabs">
     <button class="tab" class:active={$activeTab === 'review'} onclick={() => activeTab.set('review')}>Review</button>
-    <button class="tab" class:active={$activeTab === 'comments'} onclick={() => activeTab.set('comments')}>Comments</button>
+    <button class="tab" class:active={$activeTab === 'comments'} onclick={() => activeTab.set('comments')}>
+      Comments{#if $newCommentIds.length > 0}<span class="tab-badge">{$newCommentIds.length}</span>{/if}
+    </button>
   </div>
 
   <div class="tab-content">
@@ -66,4 +74,13 @@
   }
   .tab:hover { color: var(--text-secondary); }
   .tab.active { color: var(--accent); border-color: var(--accent); }
+  .tab-badge {
+    display: inline-block; margin-left: 6px;
+    font-size: 9px; font-weight: 700; line-height: 1;
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+    border-radius: 8px; padding: 2px 6px;
+    vertical-align: 1px;
+  }
 </style>
