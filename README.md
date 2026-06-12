@@ -7,6 +7,8 @@
 ![Self-Hosted](https://img.shields.io/badge/self--hosted-✓-success)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-angelaben-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/angelaben)
 
+[![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/angelaben)
+
 > **Stream AI code reviews on any GitHub pull request, post inline comments, request changes, and auto-implement reviewer feedback — all from a private local dashboard.** No SaaS, no telemetry, no data leaves your machine. Bring your own `opencode` or `Claude Code` install and review PRs the way you already do on github.com — just with AI doing the first pass.
 
 **`gh-review-tool` is a self-hosted, open-source AI code reviewer for GitHub.** It wires the `gh` CLI to the AI provider of your choice and gives you a desktop-class dashboard for browsing pull requests, getting streaming AI analysis with P0–P3 severity ratings, publishing inline review comments or full *Request Changes* reviews, and implementing fixes directly on the PR branch — without ever uploading a diff to a third-party SaaS.
@@ -322,8 +324,6 @@ This is a **local-only tool** — it is not designed to be exposed on a network.
 ## Support
 
 If `gh-review-tool` saves you time on PR reviews, consider buying me a coffee ☕ — it directly funds time spent on this project.
-
-[![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://buymeacoffee.com/angelaben)
 
 ---
 
