@@ -10,10 +10,12 @@ export function connectReviewStream(
   onEvent: SSEHandler,
   rerun = false,
   model?: string,
+  timeout?: number,
 ): SSECleanup {
   const params = new URLSearchParams();
   if (rerun) params.set('rerun', 'true');
   if (model) params.set('model', model);
+  if (timeout !== undefined) params.set('timeout', String(timeout));
   const qs = params.toString();
   const url = `/api/review/${owner}/${repo}/${prNumber}/stream${qs ? `?${qs}` : ''}`;
   const source = new EventSource(url);

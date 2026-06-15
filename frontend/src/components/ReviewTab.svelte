@@ -30,6 +30,7 @@
   const staged = $derived($stagedFindingsByPR.get(key) ?? []);
 
   let activePriorities = $state<Set<Priority>>(new Set(ALL_PRIORITIES));
+  let timeoutSec = $state(300);
 
   function togglePriority(p: Priority) {
     const next = new Set(activePriorities);
@@ -68,7 +69,7 @@
 
   function runReview(isRerun = false) {
     activePriorities = new Set(ALL_PRIORITIES);
-    startReview(repo, pr, isRerun);
+    startReview(repo, pr, isRerun, timeoutSec);
   }
 
   let incrementalBusy = $state(false);
@@ -133,6 +134,19 @@
       <button class="btn btn-sm" onclick={() => runReview(true)}>↻ Retry</button>
     {:else if mode === 'streaming'}
       <span style="color:var(--text-muted);font-size:12px">Review in progress…</span>
+    {/if}
+    {#if mode !== 'streaming'}
+      <label class="timeout-label" title="Maximum time the AI task can run before being cancelled">
+        Timeout
+        <input
+          class="timeout-input"
+          type="number"
+          min="30"
+          max="3600"
+          step="30"
+          bind:value={timeoutSec}
+        />s
+      </label>
     {/if}
   </div>
 
@@ -210,6 +224,28 @@
   }
   .export-menu button:last-child { border-bottom: none; }
   .export-menu button:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .timeout-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+  .timeout-input {
+    width: 58px;
+    padding: 2px 6px;
+    font-size: 11px;
+    background: var(--glass-bg, rgba(255,255,255,0.06));
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    text-align: right;
+  }
+  .timeout-input:focus {
+    outline: none;
+    border-color: var(--accent, rgba(100,180,255,0.5));
+  }
   .findings-list { display: flex; flex-direction: column; gap: 0; }
   .idle-state { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: 12px; }
   .no-findings { padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 12px; }
