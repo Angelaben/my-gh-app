@@ -50,7 +50,7 @@ class TestGetOrRunReview:
         review = _make_review("fresh")
         result_event = ReviewResultEvent(review)
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             yield ReviewChunkEvent("some text")
             yield result_event
 
@@ -65,7 +65,7 @@ class TestRerunReview:
         review = _make_review("new review")
         result_event = ReviewResultEvent(review)
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             yield ReviewChunkEvent("text")
             yield result_event
 
@@ -81,7 +81,7 @@ class TestStreamReview:
         review = _make_review("streamed")
         events = [ReviewChunkEvent("a"), ReviewChunkEvent("b"), ReviewResultEvent(review)]
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             for e in events:
                 yield e
 
@@ -110,7 +110,7 @@ class TestStreamReviewSplit:
         review = Review(summary="small", findings=[])
         call_count = 0
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             nonlocal call_count
             call_count += 1
             yield ReviewChunkEvent("chunk")
@@ -141,7 +141,7 @@ class TestStreamReviewSplit:
 
         call_diffs: list[str] = []
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             call_diffs.append(sub_diff)
             tag = "a" if "a.py" in sub_diff else "b"
             yield ReviewChunkEvent(f"text-{tag}")
@@ -189,7 +189,7 @@ class TestStreamReviewSplit:
         )
         vcs_port.get_diff.return_value = diff
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             yield ReviewResultEvent(Review(summary="s", findings=[]))
 
         ai_provider.stream_review = mock_stream
@@ -212,7 +212,7 @@ class TestStreamReviewSplit:
         )
         vcs_port.get_diff.return_value = diff
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             if "a.py" in sub_diff:
                 raise ProviderError("claude exited with code 124")
             yield ReviewResultEvent(
@@ -249,7 +249,7 @@ class TestStreamReviewSplit:
         )
         vcs_port.get_diff.return_value = diff
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             # The yield below is unreachable but required to make this an
             # async generator (so it matches the AIProvider.stream_review
             # signature). Always raises before yielding.
@@ -283,7 +283,7 @@ class TestStreamReviewSplit:
         )
         vcs_port.get_diff.return_value = diff
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             if "a.py" in sub_diff:
                 yield ReviewResultEvent(
                     Review(summary="a", findings=[
@@ -325,7 +325,7 @@ class TestStreamReviewSplit:
         max_in_flight = 0
         lock = asyncio.Lock()
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             nonlocal in_flight, max_in_flight
             async with lock:
                 in_flight += 1
@@ -357,7 +357,7 @@ class TestIgnoredFiles:
         )
         seen_diffs: list[str] = []
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             seen_diffs.append(diff)
             yield ReviewResultEvent(_make_review("ok"))
 
@@ -396,7 +396,7 @@ class TestIgnoredFiles:
         )
         seen_diffs: list[str] = []
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             seen_diffs.append(diff)
             yield ReviewResultEvent(_make_review("ok"))
 
@@ -444,7 +444,7 @@ class TestSplitProgressEvents:
             "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
         )
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             yield ReviewProgressEvent("> Reading context…")
             yield ReviewResultEvent(
                 Review(summary="s", findings=[Finding(priority="P2", title="t", description="d")])
@@ -473,7 +473,7 @@ class TestSplitProgressEvents:
             "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
         )
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             if "a.py" in sub_diff:
                 raise ProviderError("boom")
             yield ReviewResultEvent(Review(summary="ok", findings=[]))
@@ -493,7 +493,7 @@ class TestReviewProvenance:
         vcs_port.get_pr_head_sha.return_value = "abc123"
         review = _make_review("fresh")
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             yield ReviewResultEvent(review)
 
         ai_provider.stream_review = mock_stream
@@ -511,7 +511,7 @@ class TestReviewProvenance:
             "diff --git a/b.py b/b.py\n" + "b" * 80 + "\n"
         )
 
-        async def mock_stream(repo, pr, sub_diff, model=None):
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             yield ReviewResultEvent(Review(summary="s", findings=[]))
 
         ai_provider.stream_review = mock_stream
@@ -525,7 +525,7 @@ class TestReviewProvenance:
         vcs_port.get_pr_head_sha.side_effect = RuntimeError("gh offline")
         review = _make_review("ok")
 
-        async def mock_stream(repo, pr, diff, model=None):
+        async def mock_stream(repo, pr, diff, model=None, timeout=None):
             yield ReviewResultEvent(review)
 
         ai_provider.stream_review = mock_stream
@@ -554,32 +554,29 @@ class TestReviewProvenance:
         assert service.is_review_stale("acme/backend", 1, review) is False
 
 
-class TestReadIntEnv:
-    """The helper that parses REVIEW_DIFF_MAX_CHARS / REVIEW_MAX_CONCURRENCY."""
+class TestSettingsEnv:
+    """Env resolution in settings_store (replaces the old _read_int_env helper)."""
 
-    def test_returns_default_when_unset(self, monkeypatch):
-        from app.services.review_service import _read_int_env
+    def test_env_int_parsing(self, monkeypatch):
+        from app.services import settings_store as ss
         monkeypatch.delenv("MY_TEST_VAR", raising=False)
-        assert _read_int_env("MY_TEST_VAR", 42) == 42
-
-    def test_returns_default_when_empty_string(self, monkeypatch):
-        from app.services.review_service import _read_int_env
+        assert ss._env_int("MY_TEST_VAR", 42) == 42
         monkeypatch.setenv("MY_TEST_VAR", "")
-        assert _read_int_env("MY_TEST_VAR", 42) == 42
-
-    def test_returns_default_when_not_an_int(self, monkeypatch):
-        from app.services.review_service import _read_int_env
+        assert ss._env_int("MY_TEST_VAR", 42) == 42
         monkeypatch.setenv("MY_TEST_VAR", "abc")
-        assert _read_int_env("MY_TEST_VAR", 42) == 42
-
-    def test_returns_default_when_zero_or_negative(self, monkeypatch):
-        from app.services.review_service import _read_int_env
+        assert ss._env_int("MY_TEST_VAR", 42) == 42
         monkeypatch.setenv("MY_TEST_VAR", "0")
-        assert _read_int_env("MY_TEST_VAR", 42) == 42
+        assert ss._env_int("MY_TEST_VAR", 42) == 42
         monkeypatch.setenv("MY_TEST_VAR", "-5")
-        assert _read_int_env("MY_TEST_VAR", 42) == 42
-
-    def test_returns_parsed_value_when_valid(self, monkeypatch):
-        from app.services.review_service import _read_int_env
+        assert ss._env_int("MY_TEST_VAR", 42) == 42
         monkeypatch.setenv("MY_TEST_VAR", "100")
-        assert _read_int_env("MY_TEST_VAR", 42) == 100
+        assert ss._env_int("MY_TEST_VAR", 42) == 100
+
+    def test_review_settings_reflect_env(self, tmp_path, monkeypatch):
+        from app.services import settings_store as ss
+        monkeypatch.setattr(ss, "_SETTINGS_PATH", tmp_path / "settings.json")
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "12345")
+        monkeypatch.setenv("REVIEW_MAX_CONCURRENCY", "7")
+        s = ss.get_review_settings()
+        assert s["review_diff_max_chars"] == 12345
+        assert s["review_max_concurrency"] == 7

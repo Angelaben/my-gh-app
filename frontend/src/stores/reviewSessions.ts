@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
-import type { PR, Repo, Review, SSEReviewEvent } from '../lib/types';
+import type { IncrementalInfo, PR, Repo, Review, SSEReviewEvent } from '../lib/types';
 import { connectReviewStream, type SSECleanup } from '../lib/sse';
+import { api } from '../lib/api';
 import { selectedModel, showToast } from './ui';
 
 export type SessionStatus = 'connecting' | 'streaming' | 'done' | 'error';
@@ -179,4 +180,37 @@ export function stopReview(key: string): void {
     next.delete(key);
     return next;
   });
+}
+
+function blankSession(key: string, repo: Repo, pr: PR): ReviewSession {
+  return {
+    key, repo, pr, status: 'done', review: null,
+    chunkCount: 0, totalBytes: 0, chunkLog: '', startTime: 0, endTime: null,
+    latestProgress: '', warnings: [], activity: [], requestId: '', errorMsg: '',
+    cleanup: null,
+  };
+}
+
+/**
+ * Re-review only the files changed since the cached review's head SHA, then
+ * fold the result into the PR's session. This is a plain POST (not an SSE
+ * stream): the backend merges carried-over and new findings server-side.
+ */
+export async function runIncrementalReview(repo: Repo, pr: PR): Promise<IncrementalInfo> {
+  const key = prKey(repo.owner, repo.name, pr.number);
+  const res = await api.post<Review & { incremental: IncrementalInfo }>(
+    `/review/${repo.owner}/${repo.name}/${pr.number}/incremental`,
+  );
+  const review: Review = {
+    summary: res.summary,
+    findings: res.findings,
+    head_sha: res.head_sha,
+    created_at: res.created_at,
+    stale: res.stale,
+  };
+  reviewSessions.update((m) => {
+    const base = m.get(key) ?? blankSession(key, repo, pr);
+    return new Map(m).set(key, { ...base, review, status: 'done', endTime: Date.now() });
+  });
+  return res.incremental;
 }

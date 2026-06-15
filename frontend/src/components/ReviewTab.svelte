@@ -3,7 +3,9 @@
     stagedFindingsByPR,
     publishReviewsModalOpen,
   } from '../stores/prs';
-  import { reviewSessions, prKey, startReview } from '../stores/reviewSessions';
+  import { reviewSessions, prKey, startReview, runIncrementalReview } from '../stores/reviewSessions';
+  import { showToast } from '../stores/ui';
+  import { reviewToMarkdown, reviewToHtml, downloadFile } from '../lib/exportReview';
   import type { Repo, PR, Finding } from '../lib/types';
   import StreamingReview from './StreamingReview.svelte';
   import FindingCard from './FindingCard.svelte';
@@ -68,6 +70,41 @@
     activePriorities = new Set(ALL_PRIORITIES);
     startReview(repo, pr, isRerun);
   }
+
+  let incrementalBusy = $state(false);
+  let exportMenuOpen = $state(false);
+
+  async function runIncremental() {
+    incrementalBusy = true;
+    try {
+      const info = await runIncrementalReview(repo, pr);
+      activePriorities = new Set(ALL_PRIORITIES);
+      if (info.no_changes) {
+        showToast('No new changes since the last review', 'info');
+      } else {
+        showToast(
+          `Incremental review: ${info.new} new finding(s) from ${info.changed_files.length} file(s), ${info.carried} carried over`,
+          'success',
+        );
+      }
+    } catch {
+      showToast('Incremental review failed', 'error');
+    } finally {
+      incrementalBusy = false;
+    }
+  }
+
+  function doExport(fmt: 'md' | 'html') {
+    exportMenuOpen = false;
+    if (!review) return;
+    const slug = `${repo.owner}-${repo.name}-pr${pr.number}-review`;
+    if (fmt === 'md') {
+      downloadFile(`${slug}.md`, reviewToMarkdown(repo, pr, review), 'text/markdown');
+    } else {
+      downloadFile(`${slug}.html`, reviewToHtml(repo, pr, review), 'text/html');
+    }
+    showToast(`Exported review as ${fmt.toUpperCase()}`, 'success');
+  }
 </script>
 
 <div class="review-tab">
@@ -76,6 +113,21 @@
       <button class="btn btn-accent" onclick={() => runReview(false)}>▶ Run Review</button>
     {:else if mode === 'results'}
       <button class="btn btn-sm" onclick={() => runReview(true)}>↻ Re-run</button>
+      <button
+        class="btn btn-sm"
+        onclick={runIncremental}
+        disabled={incrementalBusy}
+        title="Review only the files changed since the last review"
+      >{incrementalBusy ? '…' : '⟳ Review new changes'}</button>
+      <div class="export-wrap">
+        <button class="btn btn-sm" onclick={() => (exportMenuOpen = !exportMenuOpen)}>⤓ Export ▾</button>
+        {#if exportMenuOpen}
+          <div class="export-menu">
+            <button onclick={() => doExport('md')}>Markdown (.md)</button>
+            <button onclick={() => doExport('html')}>HTML (.html)</button>
+          </div>
+        {/if}
+      </div>
       <span class="cache-note">Showing cached review</span>
     {:else if mode === 'error'}
       <button class="btn btn-sm" onclick={() => runReview(true)}>↻ Retry</button>
@@ -142,8 +194,22 @@
 
 <style>
   .review-tab { display: flex; flex-direction: column; gap: 14px; }
-  .actions { display: flex; align-items: center; gap: 10px; }
+  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .cache-note { font-size: 10px; color: var(--text-muted); }
+  .export-wrap { position: relative; }
+  .export-menu {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+    min-width: 160px; background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+    overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .export-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px;
+    padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border);
+  }
+  .export-menu button:last-child { border-bottom: none; }
+  .export-menu button:hover { background: var(--bg-hover); color: var(--text-primary); }
   .findings-list { display: flex; flex-direction: column; gap: 0; }
   .idle-state { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: 12px; }
   .no-findings { padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 12px; }

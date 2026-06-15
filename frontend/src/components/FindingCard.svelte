@@ -13,8 +13,37 @@
   } from '../stores/prs';
   import { prKey } from '../stores/reviewSessions';
   import { showToast } from '../stores/ui';
+  import { api } from '../lib/api';
+  import type { HunkRow } from '../lib/types';
 
   let { finding, repo, pr, index = 0 }: { finding: Finding; repo: Repo; pr: PR; index?: number } = $props();
+
+  // --- Inline mini-diff (lazy-loaded on first open) ---
+  let diffOpen = $state(false);
+  let diffLoaded = $state(false);
+  let diffLoading = $state(false);
+  let diffRows = $state<HunkRow[]>([]);
+  let diffFound = $state(true);
+
+  async function toggleDiff() {
+    diffOpen = !diffOpen;
+    if (diffOpen && !diffLoaded && finding.file && finding.line != null) {
+      diffLoading = true;
+      try {
+        const res = await api.get<{ found: boolean; rows: HunkRow[] }>(
+          `/pr/${repo.owner}/${repo.name}/${pr.number}/hunk?path=${encodeURIComponent(finding.file)}&line=${finding.line}`,
+        );
+        diffRows = res.rows;
+        diffFound = res.found;
+      } catch {
+        diffFound = false;
+        diffRows = [];
+      } finally {
+        diffLoading = false;
+        diffLoaded = true;
+      }
+    }
+  }
 
   let publishing = $state(false);
   let published = $state(false);
@@ -177,6 +206,34 @@
 
   <p class="finding-desc">{finding.description}</p>
 
+  {#if finding.file && finding.line != null}
+    <div class="minidiff">
+      <button class="diff-toggle" onclick={toggleDiff}>
+        ◇ {diffOpen ? 'Hide' : 'View'} diff
+      </button>
+      {#if diffOpen}
+        {#if diffLoading}
+          <div class="diff-note">Loading diff…</div>
+        {:else if !diffFound || diffRows.length === 0}
+          <div class="diff-note">This line isn't part of the PR diff.</div>
+        {:else}
+          <div class="diff">
+            {#each diffRows as r, ri (ri)}
+              <div
+                class="drow {r.sign === '+' ? 'add' : r.sign === '-' ? 'del' : ''}"
+                class:hl={r.new_line === finding.line}
+              >
+                <span class="ln">{r.new_line ?? r.old_line ?? ''}</span>
+                <span class="sg">{r.sign === ' ' ? '' : r.sign}</span>
+                <span class="code">{r.text}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </div>
+  {/if}
+
   {#if finding.suggestion}
     <details class="suggestion">
       <summary>Suggestion</summary>
@@ -256,6 +313,26 @@
     background: rgba(80, 180, 120, 0.25);
   }
   .finding-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin: 0; }
+  .minidiff { margin-top: 10px; }
+  .diff-toggle {
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: var(--accent); font-family: var(--font-mono); font-size: 11px;
+  }
+  .diff-toggle:hover { text-decoration: underline; }
+  .diff-note { margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+  .diff {
+    margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.3); overflow-x: auto; font-size: 11px; line-height: 1.6;
+  }
+  .drow { display: grid; grid-template-columns: 42px 16px 1fr; align-items: baseline; }
+  .drow .ln { color: var(--text-muted); text-align: right; padding-right: 8px; user-select: none; }
+  .drow .sg { text-align: center; color: var(--text-muted); }
+  .drow .code { white-space: pre; padding-right: 10px; color: var(--text-secondary); }
+  .drow.add { background: rgba(78, 205, 196, 0.08); }
+  .drow.add .sg, .drow.add .code { color: #9fe8e2; }
+  .drow.del { background: rgba(255, 59, 59, 0.08); }
+  .drow.del .sg, .drow.del .code { color: #ff9b9b; }
+  .drow.hl { box-shadow: inset 2px 0 0 var(--p1); }
   .suggestion { margin-top: 10px; }
   .suggestion summary { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; user-select: none; }
   .suggestion summary:hover { color: var(--text-secondary); }

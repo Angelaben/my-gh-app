@@ -18,6 +18,11 @@ class VCSPort(ABC):
         ...
 
     @abstractmethod
+    def get_diff_between_shas(self, repo_full_name: str, base_sha: str, head_sha: str) -> str:
+        """Return the unified diff between two commits (base...head)."""
+        ...
+
+    @abstractmethod
     def get_comments(self, repo_full_name: str, pr_number: int) -> dict:
         """Return comments, reviews, and inline review comments for a PR."""
         ...

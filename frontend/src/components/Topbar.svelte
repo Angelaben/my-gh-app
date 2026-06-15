@@ -14,6 +14,7 @@
     type ProvidersStatus,
   } from '../stores/ui';
   import { theme, THEMES } from '../stores/theme';
+  import { openSettings } from '../stores/settings';
 
   const PROVIDER_PICKED_KEY = 'gh_review_provider_picked';
 
@@ -219,6 +220,14 @@
 
   <button
     type="button"
+    class="settings-btn"
+    onclick={() => void openSettings()}
+    title="Settings — review knobs &amp; AI prompts"
+    aria-label="Settings"
+  >⚙</button>
+
+  <button
+    type="button"
     class="provider-badge"
     class:provider-claude={$aiProvider === 'claude-code'}
     class:provider-missing={!activeAvailable && !!$aiProvider}
@@ -353,6 +362,23 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .settings-btn {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 9px;
+    cursor: pointer;
+    margin-right: 12px;
+    transition: all var(--transition-fast);
+  }
+  .settings-btn:hover {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
   .sep { color: var(--text-muted); margin: 0 2px; font-size: 12px; }
   .crumb {

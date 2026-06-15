@@ -147,6 +147,19 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
     fix_prompt: ClassVar[str] = FIX_PROMPT
     analyze_prompt: ClassVar[str] = ANALYZE_PROMPT
 
+    def _effective_prompt(self, name: str, default: str) -> str:
+        """Return the user's custom prompt for ``name`` or fall back to ``default``.
+
+        Resolved lazily through :mod:`app.services.settings_store` so a custom
+        prompt edited from the Settings UI takes effect without a restart.
+        Never raises — a broken override must not break a review run.
+        """
+        try:
+            from app.services import settings_store
+            return settings_store.get_prompt(name)
+        except Exception:  # noqa: BLE001 — prompt overrides are best-effort
+            return default
+
     # ---- hook methods ------------------------------------------------------
 
     @abc.abstractmethod
@@ -491,20 +504,21 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         pr_number: int,
         diff: str,
         model: str | None = None,
+        timeout: int = DEFAULT_REVIEW_TIMEOUT,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         diff_kb = len(diff.encode()) / 1024
         logger = logging.getLogger(self.cli_name)
         logger.info(
-            "review | start | provider=%s repo=%s pr=#%d diff=%.1f KB model=%s",
-            self.cli_name, repo_full_name, pr_number, diff_kb, model or "default",
+            "review | start | provider=%s repo=%s pr=#%d diff=%.1f KB model=%s timeout=%ds",
+            self.cli_name, repo_full_name, pr_number, diff_kb, model or "default", timeout,
         )
-        message = self.review_prompt.format(
+        message = self._effective_prompt("review", self.review_prompt).format(
             pr_number=pr_number, repo_full_name=repo_full_name
         )
         chunks: list[str] = []
         warning_lines: list[str] = []
         async for chunk in self._invoke_stream(
-            message, mode="review", context=diff, model=model,
+            message, mode="review", context=diff, model=model, timeout=timeout,
         ):
             if chunk.startswith(PROGRESS_MARKER):
                 yield ReviewProgressEvent(text=chunk[PROGRESS_MARKER_LEN:])
@@ -537,7 +551,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         comments_text = "\n\n".join(
             f"Comment [id={c.id}] by {c.author}:\n{c.body}" for c in comments
         )
-        message = self.analyze_prompt.format(
+        message = self._effective_prompt("analyze", self.analyze_prompt).format(
             pr_number=pr_number, repo_full_name=repo_full_name
         )
 
@@ -557,7 +571,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         pr_number: int,
         comment_body: str,
     ) -> AsyncGenerator[FixChunkEvent, None]:
-        prompt = self.fix_prompt.format(
+        prompt = self._effective_prompt("fix", self.fix_prompt).format(
             pr_number=pr_number,
             repo_full_name=repo_full_name,
             comment_body=comment_body,
