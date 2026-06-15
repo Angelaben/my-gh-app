@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gh-review-tool · Propositions de features (illustration)</title>
+<style>
+  /* ---- Thème repris de frontend/src/styles/global.css (data-theme="dark") ---- */
+  :root{
+    --font-mono:'JetBrains Mono','Fira Code','SF Mono',ui-monospace,monospace;
+    --radius-sm:5px;--radius-md:8px;--radius-lg:12px;
+    --bg-primary:#0a0a0f;--bg-secondary:#12121a;--bg-tertiary:#1a1a26;--bg-hover:#22222e;
+    --border:#2a2a3a;--border-active:#4a4a6a;
+    --text-primary:#e0e0e8;--text-secondary:#8888a0;--text-muted:#555568;
+    --accent:#ff6b35;--accent-hover:#ff8555;--success:#4ecdc4;
+    --p0:#ff3b3b;--p1:#ff8c42;--p2:#ffd166;--p3:#7ec8e3;
+    --glass-bg:rgba(255,255,255,.06);--glass-bg-hover:rgba(255,255,255,.09);
+    --glass-border:rgba(255,255,255,.12);--glass-border-hover:rgba(255,255,255,.18);
+    --glow-accent:0 0 12px rgba(255,107,53,.25);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+        radial-gradient(900px 500px at 80% -10%,rgba(255,107,53,.08),transparent),
+        var(--bg-primary);
+       color:var(--text-primary);font-family:var(--font-mono);font-size:13px;line-height:1.5;
+       -webkit-font-smoothing:antialiased;padding-bottom:80px}
+  a{color:var(--accent)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+  /* page header */
+  header.page{position:sticky;top:0;z-index:5;backdrop-filter:blur(12px);
+    background:rgba(10,10,15,.85);border-bottom:1px solid var(--border)}
+  .page-inner{max-width:1080px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:12px}
+  .logo{font-weight:800;letter-spacing:.5px;color:var(--accent);text-shadow:var(--glow-accent)}
+  .page-inner .sub{color:var(--text-secondary);font-size:12px}
+  .legend{margin-left:auto;color:var(--text-muted);font-size:11px}
+
+  .intro{padding:34px 0 6px}
+  .intro h1{font-size:20px;margin:0 0 6px}
+  .intro p{color:var(--text-secondary);margin:4px 0;max-width:760px}
+
+  /* TOC */
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .toc a{display:inline-block;padding:5px 10px;border:1px solid var(--glass-border);
+    border-radius:var(--radius-sm);background:var(--glass-bg);color:var(--text-secondary);
+    text-decoration:none;font-size:11px}
+  .toc a:hover{background:var(--glass-bg-hover);color:var(--text-primary)}
+
+  /* feature section */
+  section.feat{margin:30px 0;border:1px solid var(--border);border-radius:var(--radius-lg);
+    background:linear-gradient(180deg,var(--bg-secondary),var(--bg-primary));overflow:hidden}
+  .feat-head{display:flex;align-items:baseline;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border);
+    background:var(--bg-tertiary)}
+  .feat-tag{font-size:11px;font-weight:800;color:var(--accent);border:1px solid rgba(255,107,53,.35);
+    background:rgba(255,107,53,.1);padding:2px 7px;border-radius:3px;white-space:nowrap}
+  .feat-head h2{font-size:15px;margin:0}
+  .feat-head .why{margin-left:auto;color:var(--text-muted);font-size:11px;max-width:42%;text-align:right}
+  .feat-body{padding:20px}
+  .feat-desc{color:var(--text-secondary);margin:0 0 16px;font-size:12px}
+  .feat-desc code{color:var(--text-primary);background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11px}
+  .mock-label{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--text-muted);margin:0 0 8px}
+
+  /* generic app chrome for mockups */
+  .stage{position:relative;border:1px solid var(--border);border-radius:var(--radius-md);
+    background:var(--bg-primary);padding:18px;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);
+    border-radius:var(--radius-sm);background:rgba(10,10,15,.85);margin-bottom:14px;font-size:12px}
+  .crumb{color:var(--text-secondary)}
+  .crumb b{color:var(--text-primary)}
+  .spacer{margin-left:auto}
+  .pill{border:1px solid var(--glass-border);background:var(--glass-bg);border-radius:var(--radius-sm);
+    padding:4px 9px;color:var(--text-secondary);font-size:11px}
+  .gear{border:1px solid rgba(255,107,53,.4);background:rgba(255,107,53,.12);color:var(--accent);
+    border-radius:var(--radius-sm);padding:4px 9px;font-size:13px;box-shadow:var(--glow-accent)}
+
+  /* buttons */
+  .btn{padding:7px 13px;border-radius:var(--radius-sm);border:1px solid var(--border);
+    background:var(--glass-bg);color:var(--text-primary);font-family:inherit;font-size:12px;cursor:default}
+  .btn-accent{background:rgba(255,107,53,.15);border-color:rgba(255,107,53,.4);color:var(--accent)}
+  .btn-warn{background:rgba(255,140,66,.16);border-color:rgba(255,140,66,.45);color:#ffaf6e}
+  .btn-success{background:rgba(78,205,196,.15);border-color:rgba(78,205,196,.4);color:var(--success)}
+  .btn-danger{background:rgba(255,59,59,.14);border-color:rgba(255,59,59,.4);color:var(--p0)}
+  .btn-sm{padding:5px 10px;font-size:11px}
+
+  /* badges */
+  .badge{font-size:10px;font-weight:800;padding:2px 6px;border-radius:3px;display:inline-block}
+  .badge-p0{background:rgba(255,59,59,.15);color:var(--p0)}
+  .badge-p1{background:rgba(255,140,66,.15);color:var(--p1)}
+  .badge-p2{background:rgba(255,209,102,.15);color:var(--p2)}
+  .badge-p3{background:rgba(126,200,227,.15);color:var(--p3)}
+  .badge-conf{background:rgba(78,205,196,.12);color:var(--success);font-weight:700}
+
+  /* modal */
+  .modal-backdrop{position:relative;border-radius:var(--radius-md);
+    background:rgba(0,0,0,.45);backdrop-filter:blur(2px);padding:26px;display:flex;justify-content:center}
+  .modal-card{width:min(520px,96%);background:rgba(20,20,26,.98);border:1px solid var(--glass-border);
+    border-radius:var(--radius-md);box-shadow:0 24px 48px rgba(0,0,0,.55)}
+  .modal-head{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border)}
+  .modal-head h3{margin:0;font-size:13px}
+  .modal-head .x{margin-left:auto;color:var(--text-muted)}
+  .tabs{display:flex;gap:4px;padding:10px 16px 0}
+  .tab{padding:6px 12px;border-radius:var(--radius-sm) var(--radius-sm) 0 0;font-size:12px;
+    color:var(--text-secondary);border:1px solid transparent}
+  .tab.active{color:var(--accent);background:var(--glass-bg);border-color:var(--glass-border);border-bottom-color:transparent}
+  .modal-body{padding:16px}
+  .modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)}
+
+  .field{display:grid;grid-template-columns:170px 110px 1fr;align-items:center;gap:12px;margin-bottom:12px}
+  .field label{color:var(--text-secondary);font-size:12px}
+  .field .hint{color:var(--text-muted);font-size:11px}
+  input.num,input.txt,textarea.ta{background:rgba(255,255,255,.03);border:1px solid var(--glass-border);
+    border-radius:var(--radius-sm);color:var(--text-primary);font-family:inherit;font-size:12px;padding:7px 9px;width:100%}
+  textarea.ta{resize:vertical;line-height:1.55}
+  .full{grid-template-columns:1fr}
+  .modified{color:var(--p1);font-size:11px}
+  .req{color:var(--text-muted);font-size:11px;margin-top:8px}
+
+  /* finding card */
+  .finding{border:1px solid var(--border);border-left:2px solid var(--p1);border-radius:var(--radius-sm);
+    padding:12px 14px;background:var(--bg-secondary)}
+  .finding-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .finding-title{font-weight:600}
+  .file-ref{color:var(--text-muted);font-size:11px}
+  .finding-desc{color:var(--text-secondary);font-size:12px;margin:8px 0}
+  .toggle{color:var(--accent);font-size:11px;cursor:default;user-select:none}
+  .actions{margin-left:auto;display:flex;gap:6px}
+
+  /* diff */
+  .diff{margin:8px 0 4px;border:1px solid var(--border);border-radius:var(--radius-sm);
+    background:#0c0c12;overflow:hidden;font-size:11.5px}
+  .diff .row{display:grid;grid-template-columns:42px 18px 1fr;align-items:center}
+  .diff .ln{color:var(--text-muted);text-align:right;padding:1px 8px 1px 0;user-select:none}
+  .diff .sg{text-align:center;color:var(--text-muted)}
+  .diff .code{padding:1px 8px;white-space:pre}
+  .diff .add{background:rgba(78,205,196,.08)}
+  .diff .add .sg,.diff .add .code{color:#9fe8e2}
+  .diff .del{background:rgba(255,59,59,.08)}
+  .diff .del .sg,.diff .del .code{color:#ff9b9b}
+  .diff .hl{box-shadow:inset 2px 0 0 var(--p1)}
+  .anno{color:var(--p1);font-size:10px}
+
+  /* toasts */
+  .toast-stage{display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+  .toast{padding:10px 14px;border-radius:var(--radius-md);font-size:12px;max-width:340px;
+    border:1px solid var(--glass-border);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .toast-success{background:rgba(78,205,196,.15);border-color:rgba(78,205,196,.3);color:var(--success)}
+  .toast-error{background:rgba(255,59,59,.15);border-color:rgba(255,59,59,.3);color:var(--p0)}
+  .toast-info{background:rgba(255,107,53,.1);border-color:rgba(255,107,53,.25);color:var(--accent)}
+
+  /* banners / notes */
+  .stale{display:flex;align-items:center;gap:10px;border:1px solid rgba(255,140,66,.35);
+    background:rgba(255,140,66,.08);color:#ffbd86;border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;margin-bottom:12px}
+  .mono-dim{color:var(--text-muted)}
+  .count-line{color:var(--text-secondary);font-size:12px;margin:6px 0 10px}
+  .filter{display:flex;gap:6px;margin:6px 0}
+  .fbtn{border:1px solid var(--glass-border);background:var(--glass-bg);border-radius:var(--radius-sm);
+    padding:4px 9px;font-size:11px;color:var(--text-secondary)}
+
+  /* export dropdown */
+  .menu{display:inline-block;border:1px solid var(--glass-border);border-radius:var(--radius-sm);
+    background:var(--bg-tertiary);overflow:hidden;min-width:160px}
+  .menu .item{padding:7px 12px;font-size:12px;border-bottom:1px solid var(--border)}
+  .menu .item:last-child{border-bottom:none}
+  .menu .item:hover{background:var(--bg-hover)}
+
+  /* trends */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}.field{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-secondary);padding:14px}
+  .panel h4{margin:0 0 12px;font-size:12px;color:var(--text-secondary);font-weight:600}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:90px}
+  .bars .bar{flex:1;background:linear-gradient(180deg,var(--accent),rgba(255,107,53,.35));
+    border-radius:3px 3px 0 0;min-height:4px}
+  .axis{display:flex;justify-content:space-between;color:var(--text-muted);font-size:10px;margin-top:6px}
+  .hbar{display:grid;grid-template-columns:34px 1fr 40px;align-items:center;gap:8px;margin:7px 0;font-size:11px}
+  .hbar .track{height:12px;border-radius:6px;background:var(--bg-hover);overflow:hidden}
+  .hbar .fill{height:100%;border-radius:6px}
+  .stat-row{display:flex;gap:18px;color:var(--text-secondary);font-size:11px;margin-top:12px;flex-wrap:wrap}
+  .stat-row b{color:var(--text-primary)}
+
+  /* PR list / queue */
+  .pr{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:9px 12px;background:var(--bg-secondary);margin-bottom:8px}
+  .pr .chk{width:15px;height:15px;border:1px solid var(--border-active);border-radius:3px;display:inline-block;position:relative}
+  .pr .chk.on{background:rgba(255,107,53,.2);border-color:var(--accent)}
+  .pr .chk.on::after{content:'✓';position:absolute;inset:-2px 0 0 1px;color:var(--accent);font-size:11px}
+  .pr .num{color:var(--text-muted)}
+  .st{font-size:9px;font-weight:800;padding:2px 6px;border-radius:3px}
+  .st-ready{background:rgba(78,205,196,.14);color:var(--success)}
+  .st-draft{background:rgba(136,136,160,.18);color:var(--text-secondary)}
+  .pr .title{color:var(--text-primary)}
+  .pr .meta{margin-left:auto;color:var(--text-muted);font-size:11px}
+  .queue{border:1px solid var(--glass-border);border-radius:var(--radius-md);background:var(--bg-tertiary);
+    padding:12px 14px;margin-top:14px}
+  .queue .qh{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-secondary);margin-bottom:10px}
+  .qrow{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12px}
+  .qrow:first-of-type{border-top:none}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .dot.run{background:var(--accent);box-shadow:var(--glow-accent)}
+  .dot.queued{background:var(--text-muted)}
+  .dot.done{background:var(--success)}
+  .spin{width:9px;height:9px;border:2px solid rgba(255,107,53,.3);border-top-color:var(--accent);
+    border-radius:50%;display:inline-block;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .foot{color:var(--text-muted);font-size:11px;text-align:center;margin-top:40px}
+  .disclaimer{border:1px dashed var(--border);border-radius:var(--radius-sm);padding:10px 14px;
+    color:var(--text-muted);font-size:11px;margin:18px 0}
+</style>
+</head>
+<body>
+<header class="page">
+  <div class="page-inner">
+    <span class="logo">GH-REVIEW</span>
+    <span class="sub">propositions de features — maquette d'illustration</span>
+    <span class="legend">non interactif · rendu statique du thème « dark »</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="intro">
+    <h1>7 améliorations proposées</h1>
+    <p>Maquettes rendues avec le thème réel de l'application (mêmes variables CSS,
+       police mono, composants <code>.btn</code>/<code>.badge</code>/<code>.modal-card</code>).
+       Chaque section montre <b>à quoi ressemblera</b> la feature, suivie d'une note
+       d'implémentation.</p>
+    <div class="disclaimer">⚠ Ceci est une <b>illustration statique</b> (aucun JS, données fictives) destinée à valider l'UX avant l'implémentation réelle dans Svelte.</div>
+    <nav class="toc">
+      <a href="#f41">4.1 · Settings unifié</a>
+      <a href="#f42">4.2 · Toasts</a>
+      <a href="#f44">4.4 · Mini-diff</a>
+      <a href="#f51">5.1 · Review incrémentale</a>
+      <a href="#f52">5.2 · Prompts éditables</a>
+      <a href="#f54">5.4 · Export + tendances</a>
+      <a href="#f57">5.7 · File multi-PR</a>
+    </nav>
+  </div>
+
+  <!-- 4.1 -->
+  <section class="feat" id="f41">
+    <div class="feat-head">
+      <span class="feat-tag">4.1 UX</span>
+      <h2>Panneau Settings unifié</h2>
+      <span class="why">Réglages aujourd'hui dispersés (timeout, env vars) → un seul endroit.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Une icône <code>⚙</code> dans la Topbar ouvre une modale (réutilise le
+        pattern <code>.modal-card</code>). Onglet <b>Review</b> = timeout (PR #22), <code>REVIEW_DIFF_MAX_CHARS</code>,
+        concurrence, globs d'ignore — persistés dans <code>.cache/settings.json</code> et surchargeant les défauts env.</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="topbar">
+          <span class="crumb">GH-REVIEW / <b>angelaben/my-gh-app</b> / #42</span>
+          <span class="spacer"></span>
+          <span class="pill">opencode ▾</span>
+          <span class="pill">model ▾</span>
+          <span class="gear" title="Settings (nouveau)">⚙</span>
+          <span class="pill">⊙ Activity</span>
+        </div>
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div class="modal-head"><h3>Settings</h3><span class="x">✕</span></div>
+            <div class="tabs"><span class="tab active">⚙ Review</span><span class="tab">✎ Prompts</span></div>
+            <div class="modal-body">
+              <div class="field"><label>Review timeout (s)</label><input class="num" value="300"><span class="hint">30–3600 · inactivité par ligne</span></div>
+              <div class="field"><label>Max diff chars</label><input class="num" value="30000"><span class="hint">au-delà → split &amp; merge</span></div>
+              <div class="field"><label>Max concurrency</label><input class="num" value="3"><span class="hint">reviews de chunks en parallèle</span></div>
+              <div class="field full"><label>Ignore globs</label><input class="txt" value="*.lock, dist/*, *.min.js, package-lock.json"></div>
+              <div class="req">ⓘ vide = filtrage désactivé · « Restaurer défauts » remet les valeurs env/built-in</div>
+            </div>
+            <div class="modal-foot"><button class="btn btn-sm">Restaurer défauts</button><button class="btn btn-accent btn-sm">Enregistrer</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4.2 -->
+  <section class="feat" id="f42">
+    <div class="feat-head">
+      <span class="feat-tag">4.2 UX</span>
+      <h2>Notifications (toasts) cohérentes</h2>
+      <span class="why">Le système existe déjà — il s'agit de le câbler partout.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc"><code>Toast.svelte</code> + <code>showToast(msg, type)</code> existent déjà.
+        On les appelle sur <b>tous</b> les chemins succès/erreur : publication de commentaire/review, push de fix,
+        nouvelle PR, switch de provider, sauvegarde des settings. Fini les erreurs silencieuses.</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="toast-stage">
+          <div class="toast toast-success">✓ Review publiée — Request Changes · #42</div>
+          <div class="toast toast-info">ℹ Provider actif : claude-code</div>
+          <div class="toast toast-error">✕ Push échoué : aucun changement dans la worktree</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4.4 -->
+  <section class="feat" id="f44">
+    <div class="feat-head">
+      <span class="feat-tag">4.4 UX</span>
+      <h2>Mini-diff ancré au finding</h2>
+      <span class="why">Les findings pointent file:line sans contexte visuel.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Dans <code>FindingCard</code>, un toggle <b>« ◇ Voir le diff »</b> (même style que la
+        section Suggestion existante) affiche le hunk autour de la ligne, surlignée. Le diff PR est déjà
+        récupéré côté backend ; on l'expose via <code>GET /api/pr/.../diff</code> et on extrait le hunk avec
+        <code>split_unified_diff()</code>.</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="finding">
+          <div class="finding-head">
+            <span class="badge badge-p1">P1</span>
+            <span class="badge badge-conf">high</span>
+            <span class="finding-title">Off-by-one dans la pagination des chunks</span>
+            <span class="file-ref">app/services/review_service.py:226</span>
+          </div>
+          <p class="finding-desc">La borne de boucle exclut le dernier chunk : <code>&lt;</code> devrait être <code>&lt;=</code>.</p>
+          <div class="toggle">◇ Voir le diff ▾</div>
+          <div class="diff">
+            <div class="row"><span class="ln">224</span><span class="sg"></span><span class="code">    async def run_one(idx, chunk):</span></div>
+            <div class="row"><span class="ln">225</span><span class="sg"></span><span class="code">        async with sem:</span></div>
+            <div class="row del hl"><span class="ln">226</span><span class="sg">-</span><span class="code">            for i in range(0, len(chunks)):        <span class="anno">◄ finding</span></span></div>
+            <div class="row add"><span class="ln">226</span><span class="sg">+</span><span class="code">            for i in range(0, len(chunks) + 1):</span></div>
+            <div class="row"><span class="ln">227</span><span class="sg"></span><span class="code">                await self._ai.stream_review(...)</span></div>
+          </div>
+          <div class="finding-head" style="margin-top:10px">
+            <span class="toggle">▸ Suggestion</span>
+            <div class="actions">
+              <button class="btn btn-sm">✎ Éditer</button>
+              <button class="btn btn-sm">+ Ajouter à la review</button>
+              <button class="btn btn-warn btn-sm">⚠ Request changes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5.1 -->
+  <section class="feat" id="f51">
+    <div class="feat-head">
+      <span class="feat-tag">5.1 Feature</span>
+      <h2>Review incrémentale</h2>
+      <span class="why">Ne re-analyser que les fichiers changés depuis la dernière review.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Quand une review cachée est <b>stale</b> (le head a bougé), un bouton
+        <b>« ⟳ Review des nouveaux changements »</b> calcule le diff <code>reviewed_sha → head</code>
+        (nouvelle méthode VCS <code>get_diff_between_shas</code> via <code>gh api compare</code>), ne revoit que
+        ces fichiers et <b>fusionne</b> : les findings des fichiers inchangés sont conservés.</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="topbar" style="margin-bottom:12px">
+          <button class="btn btn-sm">↻ Re-run</button>
+          <button class="btn btn-accent btn-sm">⟳ Review des nouveaux changements</button>
+          <span class="spacer"></span>
+        </div>
+        <div class="stale">⚠ 2 commits depuis la dernière review · <span class="mono-dim">a1b2c3d → e4f5g6h</span> · 3 fichiers</div>
+        <div class="count-line">5 findings · <span style="color:var(--text-muted)">2 conservés</span> · <span style="color:var(--success)">3 issus des nouveaux changements</span></div>
+        <div class="filter">
+          <span class="fbtn" style="border-color:rgba(255,107,53,.4);color:var(--accent)">All 5</span>
+          <span class="fbtn"><span class="badge badge-p0">P0</span> 1</span>
+          <span class="fbtn"><span class="badge badge-p1">P1</span> 2</span>
+          <span class="fbtn"><span class="badge badge-p2">P2</span> 1</span>
+          <span class="fbtn"><span class="badge badge-p3">P3</span> 1</span>
+        </div>
+        <div class="finding" style="border-left-color:var(--p2)">
+          <div class="finding-head">
+            <span class="badge badge-p2">P2</span>
+            <span class="badge" style="background:rgba(78,205,196,.12);color:var(--success)">nouveau</span>
+            <span class="finding-title">Nom de variable peu clair dans le nouveau handler</span>
+            <span class="file-ref">app/main.py:540</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5.2 -->
+  <section class="feat" id="f52">
+    <div class="feat-head">
+      <span class="feat-tag">5.2 Feature</span>
+      <h2>Prompts éditables + restauration</h2>
+      <span class="why">Customiser les prompts IA, garder les défauts de côté.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Onglet <b>Prompts</b> de la modale Settings : édition des prompts
+        <code>review</code>/<code>fix</code>/<code>analyze</code>. Les versions custom sont sauvées à part
+        (<code>.cache/prompts.json</code>) ; les défauts de <code>_prompts.py</code> restent intacts et
+        <b>« ↺ Restaurer défaut »</b> supprime juste l'override. Sauvegarde bloquée si un placeholder requis
+        (<code>{pr_number}</code>, <code>{repo_full_name}</code>) est manquant.</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="modal-backdrop">
+          <div class="modal-card">
+            <div class="modal-head"><h3>Settings</h3><span class="x">✕</span></div>
+            <div class="tabs"><span class="tab">⚙ Review</span><span class="tab active">✎ Prompts</span></div>
+            <div class="modal-body">
+              <div class="field" style="grid-template-columns:90px 150px 1fr">
+                <label>Prompt</label><span class="pill">Review ▾</span>
+                <span style="display:flex;align-items:center;gap:10px;justify-content:flex-end">
+                  <span class="modified">● Modifié</span><button class="btn btn-sm">↺ Restaurer défaut</button>
+                </span>
+              </div>
+              <textarea class="ta" rows="7">You are reviewing Pull Request #{pr_number} from repository {repo_full_name}.
+Analyze the attached diff and provide a code review. For each issue found, classify it with a criticality level:
+- P0: Critical — Security vulnerability, data loss, crash
+- P1: Major — Bug, incorrect logic, performance issue
+- P2: Minor — Code style, naming, minor improvement
+- P3: Suggestion — Nice-to-have...</textarea>
+              <div class="req">ⓘ Placeholders requis : <code>{pr_number}</code> <code>{repo_full_name}</code> — la sauvegarde est bloquée s'ils sont absents.</div>
+            </div>
+            <div class="modal-foot"><button class="btn btn-sm">Annuler</button><button class="btn btn-accent btn-sm">Enregistrer prompt</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5.4 -->
+  <section class="feat" id="f54">
+    <div class="feat-head">
+      <span class="feat-tag">5.4 Feature</span>
+      <h2>Export de review + tendances</h2>
+      <span class="why">Sortir un rapport, visualiser l'historique des métriques.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Un bouton <b>« ⤓ Export »</b> génère le rapport (Markdown / HTML) côté client depuis
+        l'objet <code>Review</code> (réutilise <code>formatFindingBody</code>). Sur l'<b>Activity page</b>, une section
+        <b>Tendances</b> exploite <code>metrics.jsonl</code> (nouveau <code>GET /api/stats/history</code>) en barres CSS — sans lib de charts.</p>
+      <div class="grid2">
+        <div>
+          <p class="mock-label">Export</p>
+          <div class="stage">
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <button class="btn btn-sm">↻ Re-run</button>
+              <button class="btn btn-accent btn-sm">⤓ Export ▾</button>
+            </div>
+            <div class="menu">
+              <div class="item">⤓ Markdown (.md)</div>
+              <div class="item">⤓ HTML (.html)</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p class="mock-label">Activity · Tendances</p>
+          <div class="stage">
+            <div class="grid2" style="gap:14px">
+              <div class="panel">
+                <h4>Reviews / jour (14 j)</h4>
+                <div class="bars">
+                  <div class="bar" style="height:18%"></div><div class="bar" style="height:42%"></div>
+                  <div class="bar" style="height:30%"></div><div class="bar" style="height:66%"></div>
+                  <div class="bar" style="height:54%"></div><div class="bar" style="height:88%"></div>
+                  <div class="bar" style="height:72%"></div><div class="bar" style="height:40%"></div>
+                  <div class="bar" style="height:100%"></div><div class="bar" style="height:60%"></div>
+                  <div class="bar" style="height:48%"></div><div class="bar" style="height:80%"></div>
+                  <div class="bar" style="height:36%"></div><div class="bar" style="height:58%"></div>
+                </div>
+                <div class="axis"><span>J-14</span><span>J-7</span><span>auj.</span></div>
+              </div>
+              <div class="panel">
+                <h4>Findings par priorité</h4>
+                <div class="hbar"><span class="badge badge-p0">P0</span><div class="track"><div class="fill" style="width:18%;background:var(--p0)"></div></div><span>14</span></div>
+                <div class="hbar"><span class="badge badge-p1">P1</span><div class="track"><div class="fill" style="width:42%;background:var(--p1)"></div></div><span>32</span></div>
+                <div class="hbar"><span class="badge badge-p2">P2</span><div class="track"><div class="fill" style="width:54%;background:var(--p2)"></div></div><span>41</span></div>
+                <div class="hbar"><span class="badge badge-p3">P3</span><div class="track"><div class="fill" style="width:34%;background:var(--p3)"></div></div><span>26</span></div>
+              </div>
+            </div>
+            <div class="stat-row"><span>Durée moy. <b>6.2 s</b></span><span>Succès <b>97%</b></span><span>Providers <b>oc 71% · cc 29%</b></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5.7 -->
+  <section class="feat" id="f57">
+    <div class="feat-head">
+      <span class="feat-tag">5.7 Feature</span>
+      <h2>File d'attente multi-PR</h2>
+      <span class="why">Lancer des reviews sur plusieurs PR d'un coup.</span>
+    </div>
+    <div class="feat-body">
+      <p class="feat-desc">Mode <b>sélection</b> dans la liste des PR (cases à cocher) + bouton
+        <b>« ⧉ Review N sélectionnées »</b>. Un store <code>reviewQueue</code> orchestre les
+        <code>startReview()</code> existants avec un <b>cap de concurrence</b> et dépile aux transitions
+        <code>done/error</code>. <b>100% frontend</b> : chaque review reste un SSE indépendant (aucun changement backend).</p>
+      <p class="mock-label">Maquette</p>
+      <div class="stage">
+        <div class="topbar" style="margin-bottom:12px">
+          <span class="crumb"><b>angelaben/my-gh-app</b> · 6 PRs ouvertes</span>
+          <span class="spacer"></span>
+          <span class="pill">☑ Sélection</span>
+          <button class="btn btn-accent btn-sm">⧉ Review 3 sélectionnées</button>
+        </div>
+        <div class="pr"><span class="chk on"></span><span class="num">#42</span><span class="st st-ready">READY</span><span class="title">Fix pagination off-by-one</span><span class="meta">alice · fix/pagination · +120 −8</span></div>
+        <div class="pr"><span class="chk on"></span><span class="num">#41</span><span class="st st-ready">READY</span><span class="title">Add settings panel</span><span class="meta">bob · feat/settings · +340 −12</span></div>
+        <div class="pr"><span class="chk"></span><span class="num">#39</span><span class="st st-draft">DRAFT</span><span class="title">WIP refactor cache</span><span class="meta">carol · refactor/cache · +88 −200</span></div>
+        <div class="pr"><span class="chk on"></span><span class="num">#38</span><span class="st st-ready">READY</span><span class="title">Bump deps</span><span class="meta">dan · chore/deps · +14 −14</span></div>
+
+        <div class="queue">
+          <div class="qh">File de review · <b style="color:var(--text-primary)">En cours 2 / 3</b> · concurrence 2 <span class="spacer"></span><button class="btn btn-danger btn-sm">⏹ Tout arrêter</button></div>
+          <div class="qrow"><span class="spin"></span><span class="num">#42</span><span>streaming</span><span class="mono-dim">· 4 findings</span></div>
+          <div class="qrow"><span class="spin"></span><span class="num">#41</span><span>streaming</span><span class="mono-dim">· lecture du contexte…</span></div>
+          <div class="qrow"><span class="dot queued"></span><span class="num">#38</span><span class="mono-dim">en attente</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">Illustration statique · gh-review-tool · thème « dark » · données fictives.</div>
+</div>
+</body>
+</html>
