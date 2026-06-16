@@ -6,7 +6,6 @@ Reviews are merged into a single Review with a structured summary.
 """
 import asyncio
 import logging
-import os
 import time
 from collections import Counter
 from collections.abc import AsyncGenerator
@@ -23,9 +22,8 @@ from app.ports.ai_provider import (
 )
 from app.ports.cache_port import CachePort
 from app.ports.vcs_port import VCSPort
-from app.services import metrics
+from app.services import metrics, settings_store
 from app.services._diff_splitter import (
-    DEFAULT_IGNORE_GLOBS,
     Chunk,
     FileDiff,
     filter_ignored_files,
@@ -34,9 +32,6 @@ from app.services._diff_splitter import (
 )
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_MAX_CHARS = 30000
-_DEFAULT_MAX_CONCURRENCY = 3
 
 
 class ReviewService:
@@ -57,19 +52,52 @@ class ReviewService:
         return await self._run_review(repo_full_name, pr_number)
 
     async def stream_review(
-        self, repo_full_name: str, pr_number: int, model: str | None = None
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        model: str | None = None,
+        timeout: int | None = None,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         """Stream review events. Splits & merges large diffs transparently."""
         t0 = time.monotonic()
+        settings = settings_store.get_review_settings()
+        if timeout is None:
+            timeout = settings["review_timeout"]
         raw_diff = self._vcs.get_diff(repo_full_name, pr_number)
         head_sha = self._fetch_head_sha(repo_full_name, pr_number)
-        max_chars = _read_int_env("REVIEW_DIFF_MAX_CHARS", _DEFAULT_MAX_CHARS)
-        max_concurrency = _read_int_env("REVIEW_MAX_CONCURRENCY", _DEFAULT_MAX_CONCURRENCY)
+        async for event in self._review_diff_text(
+            repo_full_name, pr_number, raw_diff, model, timeout, settings,
+            head_sha=head_sha, t0=t0,
+        ):
+            yield event
+
+    async def _review_diff_text(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        raw_diff: str,
+        model: str | None,
+        timeout: int,
+        settings: dict,
+        *,
+        head_sha: str | None,
+        t0: float,
+        finalize: bool = True,
+    ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        """Review an arbitrary diff text, streaming events and a final result.
+
+        Shared by the full-PR review and the incremental review. When
+        ``finalize`` is True the merged review is cached and a metrics record is
+        written; the incremental flow disables that so it can finalize the
+        *merged* (carried + new) review itself.
+        """
+        max_chars = settings["review_diff_max_chars"]
+        max_concurrency = settings["review_max_concurrency"]
 
         files = split_unified_diff(raw_diff)
         ignored: list[str] = []
         if files:
-            files, ignored = filter_ignored_files(files, _ignore_globs_from_env())
+            files, ignored = filter_ignored_files(files, settings["review_ignore_globs"])
             diff = "".join(f.content for f in files)
         else:
             # No parseable file sections — review the raw diff as-is.
@@ -78,7 +106,7 @@ class ReviewService:
         if ignored:
             yield ReviewWarningEvent([
                 f"Skipped {len(ignored)} generated/vendored file(s) "
-                f"(configure via REVIEW_IGNORE_GLOBS): " + ", ".join(sorted(ignored))
+                f"(configure via Settings → ignore globs): " + ", ".join(sorted(ignored))
             ])
             logger.info(
                 "review-service | ignored files | repo=%s pr=#%d count=%d",
@@ -92,19 +120,20 @@ class ReviewService:
                     ),
                     findings=[],
                 )
-                self._finalize_review(
-                    review, repo_full_name, pr_number, head_sha,
-                    t0=t0, model=model, diff_chars=0,
-                    chunks=0, files=0, failed_chunks=0,
-                )
+                if finalize:
+                    self._finalize_review(
+                        review, repo_full_name, pr_number, head_sha,
+                        t0=t0, model=model, diff_chars=0,
+                        chunks=0, files=0, failed_chunks=0,
+                    )
                 yield ReviewResultEvent(review)
                 return
 
         if len(diff) <= max_chars:
             async for event in self._ai.stream_review(
-                repo_full_name, pr_number, diff, model=model
+                repo_full_name, pr_number, diff, model=model, timeout=timeout
             ):
-                if isinstance(event, ReviewResultEvent):
+                if isinstance(event, ReviewResultEvent) and finalize:
                     self._finalize_review(
                         event.review, repo_full_name, pr_number, head_sha,
                         t0=t0, model=model, diff_chars=len(diff),
@@ -115,9 +144,75 @@ class ReviewService:
 
         async for event in self._stream_split_review(
             repo_full_name, pr_number, diff, files, model, max_chars, max_concurrency,
-            head_sha=head_sha, t0=t0,
+            head_sha=head_sha, t0=t0, timeout=timeout, finalize=finalize,
         ):
             yield event
+
+    async def incremental_review(
+        self, repo_full_name: str, pr_number: int, model: str | None = None
+    ) -> dict:
+        """Re-review only the files changed since the cached review's head SHA.
+
+        Findings on files untouched by the new commits are carried over; the
+        changed files are freshly reviewed. Returns the merged review plus
+        metadata (base/head SHA, changed files, carried/new counts).
+        """
+        cached = self._cache.get_review(repo_full_name, pr_number)
+        if cached is None or not cached.head_sha:
+            review = await self._run_review(repo_full_name, pr_number)
+            return {
+                "review": review, "no_changes": False, "base_sha": None,
+                "head_sha": review.head_sha,
+                "changed_files": [], "carried": 0, "new": len(review.findings),
+            }
+
+        base_sha = cached.head_sha
+        head_sha = self._fetch_head_sha(repo_full_name, pr_number)
+        if head_sha is None or head_sha == base_sha:
+            return {
+                "review": cached, "no_changes": True, "base_sha": base_sha,
+                "head_sha": head_sha or base_sha,
+                "changed_files": [], "carried": len(cached.findings), "new": 0,
+            }
+
+        settings = settings_store.get_review_settings()
+        t0 = time.monotonic()
+        compare_diff = self._vcs.get_diff_between_shas(repo_full_name, base_sha, head_sha)
+        changed_files = {f.path for f in split_unified_diff(compare_diff)}
+
+        new_review: Review | None = None
+        async for event in self._review_diff_text(
+            repo_full_name, pr_number, compare_diff, model,
+            settings["review_timeout"], settings,
+            head_sha=head_sha, t0=t0, finalize=False,
+        ):
+            if isinstance(event, ReviewResultEvent):
+                new_review = event.review
+        if new_review is None:
+            new_review = Review(summary="", findings=[])
+
+        carried = [f for f in cached.findings if f.file not in changed_files]
+        new_findings = list(new_review.findings)
+        merged_findings = _dedupe_findings(carried + new_findings)
+        merged_findings.sort(key=lambda f: f.priority)
+        merged = Review(
+            summary=(
+                f"Incremental review: {len(new_findings)} finding(s) from "
+                f"{len(changed_files)} changed file(s) since {base_sha[:7]}; "
+                f"{len(carried)} finding(s) carried over."
+            ),
+            findings=merged_findings,
+        )
+        self._finalize_review(
+            merged, repo_full_name, pr_number, head_sha,
+            t0=t0, model=model, diff_chars=len(compare_diff),
+            chunks=1, files=len(changed_files), failed_chunks=0,
+        )
+        return {
+            "review": merged, "no_changes": False, "base_sha": base_sha,
+            "head_sha": head_sha, "changed_files": sorted(changed_files),
+            "carried": len(carried), "new": len(new_findings),
+        }
 
     def is_review_stale(self, repo_full_name: str, pr_number: int, review: Review) -> bool:
         """True when the review was run against an older head commit.
@@ -191,6 +286,8 @@ class ReviewService:
         *,
         head_sha: str | None = None,
         t0: float | None = None,
+        timeout: int = 300,
+        finalize: bool = True,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         if t0 is None:
             t0 = time.monotonic()
@@ -237,7 +334,8 @@ class ReviewService:
                     ))
                     try:
                         async for ev in self._ai.stream_review(
-                            repo_full_name, pr_number, chunk.content, model=model
+                            repo_full_name, pr_number, chunk.content,
+                            model=model, timeout=timeout,
                         ):
                             if isinstance(ev, ReviewProgressEvent):
                                 # Tag the agent's own live activity lines with
@@ -321,11 +419,12 @@ class ReviewService:
             repo_full_name, pr_number, len(chunks),
             len(chunks) - failed_count, failed_count, len(findings),
         )
-        self._finalize_review(
-            merged, repo_full_name, pr_number, head_sha,
-            t0=t0, model=model, diff_chars=len(diff),
-            chunks=len(chunks), files=len(files), failed_chunks=failed_count,
-        )
+        if finalize:
+            self._finalize_review(
+                merged, repo_full_name, pr_number, head_sha,
+                t0=t0, model=model, diff_chars=len(diff),
+                chunks=len(chunks), files=len(files), failed_chunks=failed_count,
+            )
         yield ReviewResultEvent(review=merged)
 
     async def _run_review(self, repo_full_name: str, pr_number: int) -> Review:
@@ -359,27 +458,3 @@ def _dedupe_findings(findings: list[Finding]) -> list[Finding]:
         elif f.priority < current.priority:
             best[key] = f
     return [best[k] for k in order]
-
-
-def _ignore_globs_from_env() -> tuple[str, ...]:
-    """Glob patterns for files excluded from review.
-
-    Unset → built-in defaults; set to "" → filtering disabled; set to a
-    comma-separated list → replaces the defaults.
-    """
-    raw = os.getenv("REVIEW_IGNORE_GLOBS")
-    if raw is None:
-        return DEFAULT_IGNORE_GLOBS
-    return tuple(p.strip() for p in raw.split(",") if p.strip())
-
-
-def _read_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
-    try:
-        value = int(raw)
-        return value if value > 0 else default
-    except ValueError:
-        logger.warning("review-service | invalid %s=%r, using default %d", name, raw, default)
-        return default

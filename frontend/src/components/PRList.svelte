@@ -2,6 +2,13 @@
   import { onMount } from 'svelte';
   import { prs, activePR, loadPRs } from '../stores/prs';
   import { showToast } from '../stores/ui';
+  import {
+    selectionMode,
+    selectedPRNumbers,
+    enqueueReviews,
+    clearSelection,
+  } from '../stores/reviewQueue';
+  import { reviewSettings } from '../stores/settings';
   import type { Repo, PR } from '../lib/types';
   import PRItem from './PRItem.svelte';
 
@@ -10,6 +17,8 @@
   let error = $state('');
 
   onMount(async () => {
+    selectionMode.set(false);
+    clearSelection();
     try {
       await loadPRs(repo.owner, repo.name, true);
     } catch {
@@ -19,6 +28,23 @@
       loading = false;
     }
   });
+
+  function toggleSelectMode() {
+    selectionMode.update((v) => !v);
+    clearSelection();
+  }
+
+  function reviewSelected() {
+    const chosen = $prs.filter((p) => $selectedPRNumbers.has(p.number));
+    if (chosen.length === 0) {
+      showToast('Select at least one PR', 'info');
+      return;
+    }
+    enqueueReviews(repo, chosen, $reviewSettings?.review_max_concurrency ?? 2);
+    selectionMode.set(false);
+    clearSelection();
+    showToast(`Queued ${chosen.length} review${chosen.length === 1 ? '' : 's'}`, 'success');
+  }
 
   async function handleSelect(pr: PR) {
     activePR.set(pr);
@@ -44,6 +70,16 @@
     <button class="btn btn-sm" onclick={handleRefresh} disabled={loading}>
       {loading ? '…' : '↻ Refresh'}
     </button>
+    <button class="btn btn-sm" onclick={toggleSelectMode} disabled={loading || $prs.length === 0}>
+      {$selectionMode ? '✕ Cancel' : '☑ Select'}
+    </button>
+    {#if $selectionMode}
+      <button
+        class="btn btn-sm btn-accent"
+        onclick={reviewSelected}
+        disabled={$selectedPRNumbers.size === 0}
+      >⧉ Review {$selectedPRNumbers.size} selected</button>
+    {/if}
   </div>
 
   {#if loading}

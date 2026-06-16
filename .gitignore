@@ -38,3 +38,8 @@ dist/
 # Build artifacts
 build/
 *.egg-info/
+
+# Internal-only HTML mockups / reports (not for the repo)
+feature-proposals.html
+review-report.html
+*.report.html

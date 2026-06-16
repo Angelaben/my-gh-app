@@ -76,3 +76,47 @@ export interface Toast {
   message: string;
   type: ToastType;
 }
+
+export interface ReviewSettings {
+  review_timeout: number;
+  review_diff_max_chars: number;
+  review_max_concurrency: number;
+  review_ignore_globs: string[];
+}
+
+export type PromptName = 'review' | 'fix' | 'analyze';
+
+export interface PromptInfo {
+  current: string;
+  default: string;
+  is_custom: boolean;
+  required_placeholders: string[];
+}
+
+export interface HunkRow {
+  sign: ' ' | '+' | '-';
+  old_line: number | null;
+  new_line: number | null;
+  text: string;
+}
+
+export interface IncrementalInfo {
+  no_changes: boolean;
+  base_sha: string | null;
+  head_sha: string | null;
+  changed_files: string[];
+  carried: number;
+  new: number;
+}
+
+export interface StatsHistory {
+  days: number;
+  dates: string[];
+  reviews_per_day: number[];
+  findings_per_day: number[];
+  failed_per_day: number[];
+  total_reviews: number;
+  findings_by_priority: Record<string, number>;
+  by_provider: Record<string, number>;
+  avg_duration_ms: number | null;
+}

@@ -1,8 +1,17 @@
 <script lang="ts">
   import type { PR, Repo } from '../lib/types';
   import { reviewSessions, prKey } from '../stores/reviewSessions';
+  import { selectionMode, selectedPRNumbers, toggleSelected } from '../stores/reviewQueue';
 
   let { pr, repo, onselect }: { pr: PR; repo: Repo; onselect: () => void } = $props();
+
+  const selecting = $derived($selectionMode);
+  const checked = $derived($selectedPRNumbers.has(pr.number));
+
+  function handleClick() {
+    if (selecting) toggleSelected(pr.number);
+    else onselect();
+  }
 
   const session = $derived($reviewSessions.get(prKey(repo.owner, repo.name, pr.number)));
   const reviewState = $derived(
@@ -22,8 +31,11 @@
   }
 </script>
 
-<button class="pr-item" onclick={onselect}>
+<button class="pr-item" class:selecting onclick={handleClick}>
   <div class="pr-top">
+    {#if selecting}
+      <span class="chk" class:on={checked} aria-hidden="true"></span>
+    {/if}
     <span class="pr-number">#{pr.number}</span>
     <span class="pr-status {pr.is_draft ? 'status-draft' : 'status-ready'}">
       {pr.is_draft ? 'DRAFT' : 'READY'}
@@ -70,7 +82,17 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   }
+  .pr-item.selecting:hover { border-color: rgba(255,107,53,0.5); }
   .pr-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .chk {
+    width: 15px; height: 15px; flex-shrink: 0; border-radius: 3px;
+    border: 1px solid var(--border-active); position: relative;
+  }
+  .chk.on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+  .chk.on::after {
+    content: '✓'; position: absolute; inset: -3px 0 0 1px;
+    color: var(--accent); font-size: 11px; font-weight: 800;
+  }
   .pr-status {
     font-size: 9px; font-weight: 800; padding: 2px 5px;
     border-radius: 3px; flex-shrink: 0; letter-spacing: 0.04em;

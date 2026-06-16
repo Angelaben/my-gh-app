@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { connectSSE } from '../lib/sse';
   import { api } from '../lib/api';
+  import type { StatsHistory } from '../lib/types';
 
   // --- Stats (live via /api/stats/stream) ---
 
@@ -38,6 +39,13 @@
   }
 
   let stats = $state<StatsSummary | null>(null);
+  let history = $state<StatsHistory | null>(null);
+
+  async function loadHistory() {
+    try {
+      history = await api.get<StatsHistory>('/stats/history?days=14');
+    } catch { /* non-fatal */ }
+  }
 
   // --- Logs (live via /api/logs/stream) ---
 
@@ -95,6 +103,7 @@
     try {
       stats = await api.get<StatsSummary>('/stats');
     } catch { /* stream below will retry */ }
+    void loadHistory();
     try {
       const initial = await api.get<{ records: LogRecord[]; last_seq: number }>('/logs/recent?limit=200');
       appendLogs(initial.records);
@@ -102,7 +111,10 @@
 
     cleanups.push(
       connectSSE<{ type: string; stats?: StatsSummary }>('/api/stats/stream', (ev) => {
-        if (ev.type === 'stats' && ev.stats) stats = ev.stats;
+        if (ev.type === 'stats' && ev.stats) {
+          stats = ev.stats;
+          void loadHistory();
+        }
       }),
       connectSSE<{ type: string; record?: LogRecord }>('/api/logs/stream', (ev) => {
         if (ev.type !== 'log' || !ev.record) return;
@@ -116,6 +128,10 @@
   onDestroy(() => { for (const c of cleanups) c(); });
 
   const priorities = ['P0', 'P1', 'P2', 'P3'] as const;
+  const reviewsMax = $derived(history ? Math.max(1, ...history.reviews_per_day) : 1);
+  const findingsMax = $derived(
+    history ? Math.max(1, ...priorities.map((p) => history!.findings_by_priority[p] ?? 0)) : 1,
+  );
   const fmtDuration = (ms?: number | null) =>
     ms == null ? '—' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
   const fmtTs = (ts?: string) => (ts ? ts.replace('T', ' ').replace('Z', '') : '—');
@@ -161,6 +177,51 @@
       {/if}
     </div>
   </section>
+
+  <!-- Trends -->
+  {#if history && history.total_reviews > 0}
+    <section class="panel">
+      <h2 class="panel-title">Trends · last {history.days} days</h2>
+      <div class="trends">
+        <div class="trend-col">
+          <div class="trend-label">Reviews / day</div>
+          <div class="bars">
+            {#each history.reviews_per_day as n, i (i)}
+              <div
+                class="bar"
+                style="height: {Math.max(3, Math.round((n / reviewsMax) * 100))}%"
+                title="{history.dates[i]}: {n} review(s)"
+              ></div>
+            {/each}
+          </div>
+          <div class="axis">
+            <span>{history.dates[0]?.slice(5)}</span>
+            <span>{history.dates[history.dates.length - 1]?.slice(5)}</span>
+          </div>
+        </div>
+        <div class="trend-col">
+          <div class="trend-label">Findings by priority</div>
+          {#each priorities as p}
+            {@const c = history.findings_by_priority[p] ?? 0}
+            <div class="hbar">
+              <span class="badge badge-{p.toLowerCase()}">{p}</span>
+              <div class="track">
+                <div class="fill fill-{p.toLowerCase()}" style="width: {Math.round((c / findingsMax) * 100)}%"></div>
+              </div>
+              <span class="hval">{c}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+      <div class="trend-stats">
+        <span>Avg duration <b>{fmtDuration(history.avg_duration_ms)}</b></span>
+        <span>Total reviews <b>{history.total_reviews}</b></span>
+        {#each Object.entries(history.by_provider) as [prov, n]}
+          <span>{prov} <b>{n}</b></span>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <!-- Recent runs -->
   <section class="panel">
@@ -264,6 +325,27 @@
     border: 1px solid var(--glass-border); border-radius: 10px; padding: 2px 8px;
   }
   .failed-note { font-size: 10px; color: var(--p1); }
+
+  .trends { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 8px; }
+  @media (max-width: 720px) { .trends { grid-template-columns: 1fr; } }
+  .trend-col { display: flex; flex-direction: column; gap: 8px; }
+  .trend-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .bars { display: flex; align-items: flex-end; gap: 4px; height: 90px; }
+  .bar {
+    flex: 1; min-height: 3px; border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 35%, transparent));
+  }
+  .axis { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 9px; }
+  .hbar { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 8px; }
+  .hbar .track { height: 12px; border-radius: 6px; background: var(--bg-hover); overflow: hidden; }
+  .hbar .fill { height: 100%; border-radius: 6px; }
+  .fill-p0 { background: var(--p0); }
+  .fill-p1 { background: var(--p1); }
+  .fill-p2 { background: var(--p2); }
+  .fill-p3 { background: var(--p3); }
+  .hbar .hval { font-size: 11px; color: var(--text-secondary); text-align: right; }
+  .trend-stats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; color: var(--text-muted); font-size: 11px; }
+  .trend-stats b { color: var(--text-primary); }
 
   .panel {
     background: var(--glass-bg); border: 1px solid var(--glass-border);

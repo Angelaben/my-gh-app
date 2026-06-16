@@ -61,9 +61,18 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def stream_review(
-        self, repo_full_name: str, pr_number: int, diff: str, model: str | None = None
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        diff: str,
+        model: str | None = None,
+        timeout: int = 300,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
-        """Stream review output. Must yield ReviewChunkEvent(s) then a final ReviewResultEvent."""
+        """Stream review output. Must yield ReviewChunkEvent(s) then a final ReviewResultEvent.
+
+        ``timeout`` is the per-line inactivity timeout (seconds) for the
+        underlying provider call.
+        """
         yield
 
     @abstractmethod

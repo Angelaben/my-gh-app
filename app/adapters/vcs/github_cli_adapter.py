@@ -92,6 +92,13 @@ class GitHubCLIAdapter(VCSPort):
                 "--header", "Accept: application/vnd.github.diff",
             ])
 
+    def get_diff_between_shas(self, repo_full_name: str, base_sha: str, head_sha: str) -> str:
+        """Unified diff between two commits via the GitHub compare API."""
+        return self._run([
+            "api", f"repos/{repo_full_name}/compare/{base_sha}...{head_sha}",
+            "--header", "Accept: application/vnd.github.diff",
+        ])
+
     def get_comments(self, repo_full_name: str, pr_number: int) -> dict:
         raw = self._run([
             "pr", "view", str(pr_number),

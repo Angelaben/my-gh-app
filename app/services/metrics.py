@@ -106,3 +106,59 @@ def summarize() -> dict:
         "events": dict(Counter(str(r.get("event")) for r in records)),
         "recent": load(limit=20),
     }
+
+
+def history(days: int = 14) -> dict:
+    """Per-day review activity over the last ``days`` (for the Activity trends)."""
+    days = max(1, min(int(days), 90))
+    now = time.time()
+    date_keys = [
+        time.strftime("%Y-%m-%d", time.gmtime(now - i * 86400))
+        for i in range(days - 1, -1, -1)
+    ]
+    index = {d: i for i, d in enumerate(date_keys)}
+    reviews_per_day = [0] * days
+    findings_per_day = [0] * days
+    failed_per_day = [0] * days
+    dur_sum = [0.0] * days
+    dur_n = [0] * days
+    findings_by_priority: Counter = Counter()
+    by_provider: Counter = Counter()
+    total = 0
+    for r in load():
+        if r.get("event") != "review":
+            continue
+        bucket = index.get(str(r.get("ts", ""))[:10])
+        if bucket is None:
+            continue
+        total += 1
+        reviews_per_day[bucket] += 1
+        ft = r.get("findings_total")
+        if isinstance(ft, int):
+            findings_per_day[bucket] += ft
+        duration = r.get("duration_ms")
+        if isinstance(duration, (int, float)):
+            dur_sum[bucket] += duration
+            dur_n[bucket] += 1
+        failed = r.get("failed_chunks")
+        if isinstance(failed, int) and failed > 0:
+            failed_per_day[bucket] += 1
+        for p in _PRIORITIES:
+            count = r.get(f"findings_{p.lower()}")
+            if isinstance(count, int):
+                findings_by_priority[p] += count
+        if r.get("provider"):
+            by_provider[str(r.get("provider"))] += 1
+    total_dur = sum(dur_sum)
+    total_dur_n = sum(dur_n)
+    return {
+        "days": days,
+        "dates": date_keys,
+        "reviews_per_day": reviews_per_day,
+        "findings_per_day": findings_per_day,
+        "failed_per_day": failed_per_day,
+        "total_reviews": total,
+        "findings_by_priority": {p: findings_by_priority.get(p, 0) for p in _PRIORITIES},
+        "by_provider": dict(by_provider),
+        "avg_duration_ms": round(total_dur / total_dur_n) if total_dur_n else None,
+    }

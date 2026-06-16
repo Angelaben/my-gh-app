@@ -35,6 +35,8 @@ from app.ports.ai_provider import (
 )
 from app.request_context import request_id_var
 from app.services import metrics as metrics_store
+from app.services import settings_store
+from app.services._diff_splitter import extract_hunk_rows, split_unified_diff
 from app.services.comment_service import CommentService
 from app.services.fix_service import FixService
 from app.services.review_service import ReviewService
@@ -145,10 +147,15 @@ class SwitchableAIProvider(AIProvider):
         return self._providers[self._active]
 
     async def stream_review(
-        self, repo_full_name: str, pr_number: int, diff: str, model: str | None = None
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        diff: str,
+        model: str | None = None,
+        timeout: int = 300,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         async for event in self._delegate().stream_review(
-            repo_full_name, pr_number, diff, model=model
+            repo_full_name, pr_number, diff, model=model, timeout=timeout
         ):
             yield event
 
@@ -418,6 +425,66 @@ def list_models():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# --- Settings & prompts endpoints ---
+
+
+class SettingsUpdate(BaseModel):
+    review_timeout: int | None = None
+    review_diff_max_chars: int | None = None
+    review_max_concurrency: int | None = None
+    review_ignore_globs: list[str] | None = None
+
+
+class PromptUpdate(BaseModel):
+    body: str
+
+
+@app.get("/api/settings")
+def get_settings():
+    """Effective review settings plus their built-in defaults."""
+    return {
+        "review": settings_store.get_review_settings(),
+        "defaults": settings_store.default_review_settings(),
+    }
+
+
+@app.post("/api/settings")
+def update_settings(data: SettingsUpdate):
+    try:
+        return {"review": settings_store.save_review_settings(data.model_dump(exclude_none=True))}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/settings/reset")
+def reset_settings():
+    return {"review": settings_store.reset_review_settings()}
+
+
+@app.get("/api/prompts")
+def get_prompts():
+    """All AI prompts with their defaults and whether a custom override is active."""
+    return settings_store.get_prompts()
+
+
+@app.post("/api/prompts/{name}")
+def update_prompt(name: str, data: PromptUpdate):
+    try:
+        return settings_store.save_prompt(name, data.body)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt {name!r}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/prompts/{name}")
+def reset_prompt(name: str):
+    try:
+        return settings_store.reset_prompt(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"Unknown prompt {name!r}") from e
+
+
 # --- PR endpoints ---
 
 @app.get("/api/prs/{owner}/{repo}")
@@ -480,6 +547,34 @@ def get_pr_detail(owner: str, repo: str, pr_number: int):
         }
     except Exception as e:
         logger.exception("get_pr_detail | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/pr/{owner}/{repo}/{pr_number}/hunk")
+def get_pr_hunk(owner: str, repo: str, pr_number: int, path: str, line: int, context: int = 4):
+    """Return diff rows around a finding's line for the inline mini-diff view."""
+    try:
+        repo_full_name = f"{owner}/{repo}"
+        raw_diff = _vcs.get_diff(repo_full_name, pr_number)
+        file_section = next(
+            (f for f in split_unified_diff(raw_diff) if f.path == path), None
+        )
+        if file_section is None:
+            return {"found": False, "path": path, "target_line": line, "rows": []}
+        rows, found = extract_hunk_rows(file_section.content, line, max(0, min(context, 20)))
+        return {
+            "found": found,
+            "path": path,
+            "target_line": line,
+            "rows": [
+                {"sign": r.sign, "old_line": r.old_line, "new_line": r.new_line, "text": r.text}
+                for r in rows
+            ],
+        }
+    except Exception as e:
+        logger.exception(
+            "get_pr_hunk | failed | repo=%s/%s pr=#%d path=%s", owner, repo, pr_number, path
+        )
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -546,12 +641,40 @@ async def rerun_review(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/api/review/{owner}/{repo}/{pr_number}/incremental")
+async def incremental_review(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    svc: ReviewService = Depends(get_review_service),
+):
+    """Re-review only the files changed since the cached review's head SHA."""
+    try:
+        full_name = f"{owner}/{repo}"
+        result = await svc.incremental_review(full_name, pr_number)
+        payload = _serialize_review(result["review"])
+        payload["stale"] = svc.is_review_stale(full_name, pr_number, result["review"])
+        payload["incremental"] = {
+            "no_changes": result["no_changes"],
+            "base_sha": result["base_sha"],
+            "head_sha": result["head_sha"],
+            "changed_files": result["changed_files"],
+            "carried": result["carried"],
+            "new": result["new"],
+        }
+        return payload
+    except Exception as e:
+        logger.exception("incremental_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.get("/api/review/{owner}/{repo}/{pr_number}/stream")
 async def stream_review(
     owner: str,
     repo: str,
     pr_number: int,
     model: str | None = Query(default=None, description="AI provider model override (e.g. anthropic/claude-opus-4-5 for opencode, claude-opus-4-7 for claude-code)"),
+    timeout: int | None = Query(default=None, ge=30, le=3600, description="Per-line inactivity timeout in seconds (defaults to the saved Settings value)."),
     svc: ReviewService = Depends(get_review_service),
 ):
     """SSE endpoint that streams AI output in real-time, then emits the parsed result."""
@@ -560,7 +683,7 @@ async def stream_review(
             # Correlation id first: lets the UI's agent-activity console link
             # this run to the matching backend log records (X-Request-Id).
             yield f"data: {json.dumps({'type': 'meta', 'request_id': request_id_var.get() or ''})}\n\n"
-            async for event in svc.stream_review(f"{owner}/{repo}", pr_number, model=model):
+            async for event in svc.stream_review(f"{owner}/{repo}", pr_number, model=model, timeout=timeout):
                 if isinstance(event, ReviewChunkEvent):
                     for line in event.text.splitlines(keepends=True):
                         yield f"data: {json.dumps({'type': 'chunk', 'text': line})}\n\n"
@@ -743,6 +866,12 @@ def clear_review_cache(owner: str, repo: str, pr_number: int):
 def get_stats():
     """Aggregated operational metrics (reviews run, durations, findings)."""
     return metrics_store.summarize()
+
+
+@app.get("/api/stats/history")
+def get_stats_history(days: int = Query(default=14, ge=1, le=90)):
+    """Per-day review activity for the Activity-page trends section."""
+    return metrics_store.history(days)
 
 
 _STATS_POLL_S = 2.0

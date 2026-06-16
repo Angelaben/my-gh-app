@@ -11,6 +11,8 @@
   import PRDetail from './components/PRDetail.svelte';
   import ActivityPage from './components/ActivityPage.svelte';
   import ProviderModal from './components/ProviderModal.svelte';
+  import SettingsModal from './components/SettingsModal.svelte';
+  import ReviewQueue from './components/ReviewQueue.svelte';
   import Toast from './components/Toast.svelte';
 
   onMount(() => { loadRepos(); });
@@ -44,6 +46,8 @@
 </div>
 
 <ProviderModal />
+<SettingsModal />
+<ReviewQueue />
 
 {#each $toasts as toast (toast.id)}
   <Toast {toast} />

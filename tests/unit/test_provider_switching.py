@@ -17,7 +17,7 @@ class _FakeAIProvider(AIProvider):
     def __init__(self, tag: str) -> None:
         self.tag = tag
 
-    async def stream_review(self, repo_full_name, pr_number, diff, model=None):
+    async def stream_review(self, repo_full_name, pr_number, diff, model=None, timeout=300):
         yield ReviewChunkEvent(text=f"{self.tag}:review")
 
     async def analyze_comments(self, repo_full_name, pr_number, comments):

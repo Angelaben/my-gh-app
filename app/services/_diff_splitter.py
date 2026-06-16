@@ -92,6 +92,71 @@ def filter_ignored_files(
 
 
 @dataclass
+class DiffRow:
+    """One displayable row of a unified diff hunk.
+
+    ``sign`` is ``" "`` (context), ``"+"`` (added) or ``"-"`` (removed).
+    ``old_line`` / ``new_line`` are 1-based line numbers on each side (the
+    irrelevant side is ``None`` for add/remove rows).
+    """
+
+    sign: str
+    old_line: int | None
+    new_line: int | None
+    text: str
+
+
+_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def extract_hunk_rows(
+    file_content: str, target_line: int, context: int = 4
+) -> tuple[list[DiffRow], bool]:
+    """Return the diff rows around ``target_line`` (new-side) for one file's diff.
+
+    ``file_content`` is a single file section of a unified diff (as produced by
+    :func:`split_unified_diff`). Returns ``(rows, found)``; ``found`` is False
+    when ``target_line`` is not present on the new side of any hunk (i.e. the
+    finding points at a line outside the PR diff).
+    """
+    rows: list[DiffRow] = []
+    old_no = new_no = 0
+    seen_hunk = False
+    for line in file_content.splitlines():
+        m = _HUNK_HEADER_RE.match(line)
+        if m:
+            old_no, new_no = int(m.group(1)), int(m.group(2))
+            seen_hunk = True
+            continue
+        if not seen_hunk:
+            continue
+        if line.startswith("+") and not line.startswith("+++"):
+            rows.append(DiffRow("+", None, new_no, line[1:]))
+            new_no += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            rows.append(DiffRow("-", old_no, None, line[1:]))
+            old_no += 1
+        elif line.startswith(" "):
+            rows.append(DiffRow(" ", old_no, new_no, line[1:]))
+            old_no += 1
+            new_no += 1
+        # "\ No newline at end of file" and stray lines are ignored.
+
+    target_idx = next(
+        (
+            i for i, r in enumerate(rows)
+            if r.new_line == target_line and r.sign in (" ", "+")
+        ),
+        None,
+    )
+    if target_idx is None:
+        return [], False
+    lo = max(0, target_idx - context)
+    hi = min(len(rows), target_idx + context + 1)
+    return rows[lo:hi], True
+
+
+@dataclass
 class Chunk:
     """A bundle of file diffs sized to fit one LLM call.
 
