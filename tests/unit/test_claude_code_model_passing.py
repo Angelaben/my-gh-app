@@ -302,10 +302,12 @@ async def test_extra_failure_warnings_empty_when_no_signal():
 # ---- argv assembly: --bare vs --dangerously-skip-permissions --------------
 
 
-async def test_argv_includes_bare_for_review(monkeypatch):
-    """Read-only flows (review/analyze/generate) must add ``--bare`` so the
-    keychain bypass doesn't fall back to the strict model-validation path.
+async def test_argv_omits_bare_for_review_by_default(monkeypatch):
+    """Read-only flows (review/analyze/generate) must NOT add ``--bare`` by
+    default — ``--bare`` suppresses Skill discovery, and the connector relies on
+    the bundled ``claude_skills/`` being auto-discovered.
     """
+    monkeypatch.delenv("CLAUDE_CODE_BARE", raising=False)
     captured: dict = {}
     proc = _FakeProc([b'{"summary":"ok","findings":[]}\n'], [], 0)
     _patch_subprocess(monkeypatch, proc, captured)
@@ -314,8 +316,22 @@ async def test_argv_includes_bare_for_review(monkeypatch):
         pass
 
     args = captured["args"]
-    assert "--bare" in args, f"--bare must be present for read-only flows: {args!r}"
+    assert "--bare" not in args, f"--bare must be absent by default: {args!r}"
     assert "--dangerously-skip-permissions" not in args
+
+
+async def test_argv_bare_env_flag_restores_bare_for_review(monkeypatch):
+    """``CLAUDE_CODE_BARE=1`` re-enables ``--bare`` on read-only runs."""
+    monkeypatch.setenv("CLAUDE_CODE_BARE", "1")
+    captured: dict = {}
+    proc = _FakeProc([b'{"summary":"ok","findings":[]}\n'], [], 0)
+    _patch_subprocess(monkeypatch, proc, captured)
+
+    async for _ in _stream_claude_code("hi", mode="review"):
+        pass
+
+    args = captured["args"]
+    assert "--bare" in args, f"CLAUDE_CODE_BARE=1 must restore --bare: {args!r}"
 
 
 async def test_argv_includes_skip_permissions_for_fix(monkeypatch):

@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.adapters.ai._skills import install_bundled_skills
 from app.adapters.ai.claude_code_adapter import ClaudeCodeAdapter
 from app.adapters.ai.opencode_adapter import OpenCodeAdapter
 from app.adapters.cache.json_file_cache import JsonFileCache
@@ -228,6 +229,17 @@ logger.info(
     _ai.active, _provider_from_env,
     {name: _provider_available(name) for name in _SUPPORTED_PROVIDERS},
 )
+
+# Make the repo's bundled Skills (claude_skills/) discoverable by both the
+# opencode and claude connectors, alongside the user's global Skills. Linking
+# them into ~/.claude/skills/ is best-effort — a failure here must not stop the
+# server from booting.
+_skill_install = install_bundled_skills()
+if _skill_install.installed or _skill_install.skipped_conflict:
+    logger.info(
+        "Skills | bundled skills wired into connectors | available=%s | kept user's=%s",
+        _skill_install.installed, _skill_install.skipped_conflict,
+    )
 
 _review_service = ReviewService(ai=_ai, cache=_cache, vcs=_vcs)
 _fix_service = FixService(ai=_ai, vcs=_vcs, worktree=_worktree)

@@ -20,6 +20,13 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   development.
 
 ### Changed
+- **Claude read-only runs no longer force `--bare`.** `--bare` skips
+  auto-discovery of Skills (and hooks / plugins / MCP / CLAUDE.md), which
+  defeated the bundled `claude_skills/`. Review / analyze / generate runs now
+  omit it so the connector picks up the Skills. Set `CLAUDE_CODE_BARE=1` to
+  restore the legacy path on deployments where the non-bare model-validation
+  step rejects valid IDs (e.g. some AWS Bedrock setups). The fix flow is
+  unchanged (it already ran without `--bare`).
 - **`claude-code` is re-enabled as a first-class provider.** The
   `ENABLE_CLAUDE_CODE` feature flag is removed: the provider is always
   registered, listed in the picker, and selectable via `AI_PROVIDER` or the
@@ -32,6 +39,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   custom input.
 
 ### Added
+- **Bundled Agent Skills wired into both connectors.** The Skills shipped
+  under `claude_skills/` (currently `code-reviewer`) are now linked into the
+  global skills directory (`~/.claude/skills/`, honouring `CLAUDE_CONFIG_DIR`)
+  on startup, so *both* the `opencode` and `claude` connectors auto-discover
+  them — in every flow (review, analyze, fix) and regardless of the working
+  directory — alongside any Skills the user already has globally. The install
+  (`app/adapters/ai/_skills.py`) is idempotent, never overwrites a same-named
+  global Skill the user owns, and is best-effort (a failure can't stop the
+  server booting). Override the source dir with `GH_REVIEW_SKILLS_DIR`.
 - **Hexagonal AI-adapter base class.** A new `BaseCLIAIAdapter`
   (`app/adapters/ai/_base.py`) consolidates the subprocess / streaming /
   parsing plumbing that used to be duplicated across `OpenCodeAdapter` and
