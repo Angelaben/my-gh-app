@@ -92,7 +92,7 @@
         onclick={() => handleSelect(repo)}
         onkeydown={(e) => e.key === 'Enter' && handleSelect(repo)}
       >
-        <span class="repo-name">{repo.full_name}</span>
+        <span class="repo-name" title={repo.full_name}>{repo.full_name}</span>
         <button class="remove-btn" onclick={(e) => handleRemove(e, repo.full_name)} aria-label="Remove">×</button>
       </div>
     {/each}
