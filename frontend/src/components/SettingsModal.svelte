@@ -16,7 +16,7 @@
 
   // --- Review tab local form (synced from the store) ---
   let timeout = $state(300);
-  let maxChars = $state(30000);
+  let maxChars = $state(150000);
   let concurrency = $state(3);
   let globs = $state('');
 

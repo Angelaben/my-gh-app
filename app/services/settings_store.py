@@ -26,7 +26,11 @@ _PROMPTS_PATH = _CACHE_DIR / "prompts.json"
 
 # Default values for the review knobs (also the lower-/upper-bound guards).
 DEFAULT_REVIEW_TIMEOUT = 300
-DEFAULT_DIFF_MAX_CHARS = 30000
+# Single-call budget. Splitting a diff into independent sub-reviews loses
+# cross-file context, so the default is sized for large-context models
+# (~37K tokens ≈ well within Claude's 200K window) and splitting only kicks
+# in for genuinely huge PRs. Lower it for small-context models.
+DEFAULT_DIFF_MAX_CHARS = 150_000
 DEFAULT_MAX_CONCURRENCY = 3
 
 # key -> (env var, default, min, max)

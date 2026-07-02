@@ -1,8 +1,13 @@
 """ReviewService — orchestrates AI, VCS, and cache ports for PR review.
 
-When the PR diff exceeds REVIEW_DIFF_MAX_CHARS, the review is fanned out
-across multiple parallel sub-calls (one per packed chunk) and the per-chunk
-Reviews are merged into a single Review with a structured summary.
+The whole diff is sent to the provider in a single call whenever it fits
+REVIEW_DIFF_MAX_CHARS (the default is sized for large-context models, so
+splitting is the exception, not the rule). Only above that budget is the
+review fanned out across parallel sub-calls (one per packed chunk); each
+sub-call is prepended with a shared PR manifest — the full list of changed
+files with +/- counts — so independent chunk reviews keep cross-file
+context, and the per-chunk Reviews are merged into a single Review with a
+structured summary.
 """
 import asyncio
 import logging
@@ -26,8 +31,10 @@ from app.services import metrics, settings_store
 from app.services._diff_splitter import (
     Chunk,
     FileDiff,
+    build_manifest,
     filter_ignored_files,
     pack_chunks,
+    render_chunk_preamble,
     split_unified_diff,
 )
 
@@ -292,11 +299,13 @@ class ReviewService:
         if t0 is None:
             t0 = time.monotonic()
         chunks = pack_chunks(files, max_chars)
+        manifest = build_manifest(files)
         truncated = [path for c in chunks for path in c.truncated_files]
 
         warning_lines = [
             f"Diff too large ({len(diff)} chars), split into {len(chunks)} chunks "
-            f"across {len(files)} files."
+            f"across {len(files)} files. Each chunk carries the full PR file "
+            "manifest so sub-reviews keep cross-file context."
         ]
         warning_lines += [f"Truncated file: {p}" for p in truncated]
         yield ReviewWarningEvent(warning_lines)
@@ -326,6 +335,14 @@ class ReviewService:
             tag = f"[chunk {idx}/{total}]"
             review: Review | None = None
             error: BaseException | None = None
+            # Give each independent sub-call the shape of the whole PR so it
+            # can reason about cross-file impacts it cannot see directly.
+            payload = chunk.content
+            if total > 1:
+                payload = (
+                    render_chunk_preamble(manifest, chunk.files, idx, total)
+                    + chunk.content
+                )
             try:
                 async with sem:
                     t_chunk = time.monotonic()
@@ -334,7 +351,7 @@ class ReviewService:
                     ))
                     try:
                         async for ev in self._ai.stream_review(
-                            repo_full_name, pr_number, chunk.content,
+                            repo_full_name, pr_number, payload,
                             model=model, timeout=timeout,
                         ):
                             if isinstance(ev, ReviewProgressEvent):

@@ -143,7 +143,9 @@ class TestStreamReviewSplit:
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             call_diffs.append(sub_diff)
-            tag = "a" if "a.py" in sub_diff else "b"
+            # The PR manifest preamble names every file, so discriminate on
+            # the actual diff section header.
+            tag = "a" if "diff --git a/a.py" in sub_diff else "b"
             yield ReviewChunkEvent(f"text-{tag}")
             yield ReviewResultEvent(
                 Review(
@@ -213,7 +215,7 @@ class TestStreamReviewSplit:
         vcs_port.get_diff.return_value = diff
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 raise ProviderError("claude exited with code 124")
             yield ReviewResultEvent(
                 Review(
@@ -284,7 +286,7 @@ class TestStreamReviewSplit:
         vcs_port.get_diff.return_value = diff
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 yield ReviewResultEvent(
                     Review(summary="a", findings=[
                         Finding(priority="P2", title="low-a", description="d"),
@@ -344,6 +346,66 @@ class TestStreamReviewSplit:
         assert max_in_flight <= 2, f"semaphore breached: max_in_flight={max_in_flight}"
         # Sanity: we did actually overlap (otherwise the cap test is vacuous).
         assert max_in_flight >= 2
+
+
+class TestChunkSharedContext:
+    """Split sub-calls carry a shared PR manifest so they aren't blind to
+    the rest of the change set."""
+
+    async def test_each_chunk_receives_full_pr_manifest(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        diff = (
+            "diff --git a/a.py b/a.py\n"
+            "+new a line\n" + "a" * 130 + "\n"
+            "diff --git a/b.py b/b.py\n"
+            "-old b line\n" + "b" * 130 + "\n"
+        )
+        vcs_port.get_diff.return_value = diff
+        call_diffs: list[str] = []
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            call_diffs.append(sub_diff)
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        _ = [e async for e in service.stream_review("acme/backend", 1)]
+
+        assert len(call_diffs) == 2
+        for sub_diff in call_diffs:
+            # Every sub-call sees the complete file list with change stats.
+            assert "All files changed in this PR:" in sub_diff
+            assert "- a.py (+1/-0)" in sub_diff
+            assert "- b.py (+0/-1)" in sub_diff
+            # Exactly one file is attached; the other is flagged as elsewhere.
+            assert sub_diff.count("(in this part)") == 1
+            assert sub_diff.count("(in another part)") == 1
+            # The preamble precedes the actual diff section.
+            assert "[DIFF PART FOLLOWS]" in sub_diff
+            assert sub_diff.index("[PR CONTEXT") < sub_diff.index("diff --git ")
+
+        # Each part is numbered.
+        parts = sorted(d[d.index("part ") : d.index(" of a large")] for d in call_diffs)
+        assert parts == ["part 1/2", "part 2/2"]
+
+    async def test_single_call_path_has_no_preamble(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "10000")
+        vcs_port.get_diff.return_value = "diff --git a/a.py b/a.py\n+x\n"
+        seen: list[str] = []
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            seen.append(sub_diff)
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        _ = [e async for e in service.stream_review("acme/backend", 1)]
+
+        assert len(seen) == 1
+        assert "[PR CONTEXT" not in seen[0]
+        assert seen[0].startswith("diff --git ")
 
 
 class TestIgnoredFiles:
@@ -474,7 +536,7 @@ class TestSplitProgressEvents:
         )
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 raise ProviderError("boom")
             yield ReviewResultEvent(Review(summary="ok", findings=[]))
 
