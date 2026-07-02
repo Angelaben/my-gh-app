@@ -81,10 +81,11 @@ export interface ReviewSettings {
   review_timeout: number;
   review_diff_max_chars: number;
   review_max_concurrency: number;
+  review_synthesis: boolean;
   review_ignore_globs: string[];
 }
 
-export type PromptName = 'review' | 'fix' | 'analyze';
+export type PromptName = 'review' | 'fix' | 'analyze' | 'synthesize';
 
 export interface PromptInfo {
   current: string;

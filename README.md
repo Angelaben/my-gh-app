@@ -166,6 +166,7 @@ Optional environment variables:
 | `AI_PROVIDER`             | auto-detect | Selects the AI backend at startup. Supported: `opencode`, `claude-code`. Live-switchable from the UI. |
 | `REVIEW_DIFF_MAX_CHARS`   | `150000`    | Threshold above which the PR diff is split by file and reviewed in parallel sub-calls (each sub-call carries the full PR file manifest for cross-file context). Sized so most PRs fit a single coherent call; lower it for small-context models. |
 | `REVIEW_MAX_CONCURRENCY`  | `3`         | Maximum number of parallel sub-reviews launched when a diff is split. Each spawns one provider subprocess. |
+| `REVIEW_SYNTHESIS`        | `true`      | After a split review, run one extra AI pass that consolidates the per-chunk findings (semantic dedupe, consistent priorities, one coherent summary). Set `0`/`false` to keep the mechanical merge only. |
 
 Data is stored in:
 

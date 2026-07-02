@@ -18,6 +18,7 @@
   let timeout = $state(300);
   let maxChars = $state(150000);
   let concurrency = $state(3);
+  let synthesis = $state(true);
   let globs = $state('');
 
   $effect(() => {
@@ -26,6 +27,7 @@
       timeout = s.review_timeout;
       maxChars = s.review_diff_max_chars;
       concurrency = s.review_max_concurrency;
+      synthesis = s.review_synthesis;
       globs = s.review_ignore_globs.join(', ');
     }
   });
@@ -71,6 +73,7 @@
         review_timeout: timeout,
         review_diff_max_chars: maxChars,
         review_max_concurrency: concurrency,
+        review_synthesis: synthesis,
         review_ignore_globs: splitGlobs(globs),
       });
       showToast('Settings saved', 'success');
@@ -173,6 +176,11 @@
             <input id="set-conc" class="num" type="number" min="1" max="16" bind:value={concurrency} />
             <span class="hint">parallel chunk reviews</span>
           </div>
+          <div class="field">
+            <label for="set-synth">Synthesis pass</label>
+            <input id="set-synth" type="checkbox" bind:checked={synthesis} />
+            <span class="hint">consolidate split reviews with one extra AI call</span>
+          </div>
           <div class="field full">
             <label for="set-globs">Ignore globs</label>
             <input id="set-globs" class="txt" type="text" bind:value={globs} placeholder="*.lock, dist/*, *.min.js" />
@@ -194,6 +202,7 @@
               <option value="review">Review</option>
               <option value="fix">Fix</option>
               <option value="analyze">Analyze</option>
+              <option value="synthesize">Synthesize</option>
             </select>
             {#if promptInfo?.is_custom}<span class="modified">● Modified</span>{/if}
             {#if promptDirty}<span class="unsaved">unsaved changes</span>{/if}

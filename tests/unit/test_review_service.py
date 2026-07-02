@@ -408,6 +408,155 @@ class TestChunkSharedContext:
         assert seen[0].startswith("diff --git ")
 
 
+def _split_diff() -> str:
+    """Two-file diff that splits into 2 chunks at REVIEW_DIFF_MAX_CHARS=200."""
+    return (
+        "diff --git a/a.py b/a.py\n" + "a" * 130 + "\n"
+        "diff --git a/b.py b/b.py\n" + "b" * 130 + "\n"
+    )
+
+
+def _two_finding_chunk_stream():
+    """stream_review mock: each chunk reports one finding."""
+    async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+        tag = "a" if "diff --git a/a.py" in sub_diff else "b"
+        yield ReviewResultEvent(
+            Review(
+                summary=f"summary-{tag}",
+                findings=[Finding(priority="P1", title=f"finding-{tag}", description="d")],
+            )
+        )
+    return mock_stream
+
+
+class TestSynthesisPass:
+    """Second AI pass consolidating split-review findings."""
+
+    async def test_synthesis_result_replaces_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "1")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        synthesis_inputs: list[str] = []
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            synthesis_inputs.append(synthesis_input)
+            yield ReviewResultEvent(
+                Review(
+                    summary="One coherent summary.",
+                    findings=[Finding(priority="P0", title="consolidated", description="d")],
+                )
+            )
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results) == 1
+        assert results[0].review.summary == "One coherent summary."
+        assert [f.title for f in results[0].review.findings] == ["consolidated"]
+
+        # The synthesis input carries everything needed to consolidate.
+        assert len(synthesis_inputs) == 1
+        payload = synthesis_inputs[0]
+        assert "All files changed in this PR:" in payload
+        assert "- a.py" in payload and "- b.py" in payload
+        assert "summary-a" in payload and "summary-b" in payload
+        assert '"finding-a"' in payload and '"finding-b"' in payload
+
+    async def test_synthesis_failure_keeps_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.domain.exceptions import ProviderError
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            if False:
+                yield
+            raise ProviderError("synthesis boom")
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert sorted(f.title for f in results[0].review.findings) == [
+            "finding-a", "finding-b",
+        ]
+        flat = " ".join(line for w in events if isinstance(w, ReviewWarningEvent) for line in w.lines)
+        assert "Synthesis pass failed" in flat
+
+    async def test_synthesis_empty_result_keeps_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            yield ReviewResultEvent(Review(summary="dropped everything", findings=[]))
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert sorted(f.title for f in results[0].review.findings) == [
+            "finding-a", "finding-b",
+        ]
+        flat = " ".join(line for w in events if isinstance(w, ReviewWarningEvent) for line in w.lines)
+        assert "unusable output" in flat
+
+    async def test_synthesis_disabled_by_setting(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "0")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            raise AssertionError("synthesis must not run when disabled")
+            yield
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results[0].review.findings) == 2
+
+    async def test_synthesis_skipped_when_only_one_chunk_succeeds(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.domain.exceptions import ProviderError
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            if "diff --git a/a.py" in sub_diff:
+                raise ProviderError("chunk boom")
+            yield ReviewResultEvent(
+                Review(summary="b", findings=[
+                    Finding(priority="P1", title="x", description="d"),
+                    Finding(priority="P2", title="y", description="d"),
+                ])
+            )
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            raise AssertionError("synthesis needs >= 2 successful chunks")
+            yield
+
+        ai_provider.stream_review = mock_stream
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results[0].review.findings) == 2
+
+
 class TestIgnoredFiles:
     async def test_ignored_files_are_excluded_and_warned(
         self, service, ai_provider, vcs_port, monkeypatch

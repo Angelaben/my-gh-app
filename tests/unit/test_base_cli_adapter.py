@@ -499,6 +499,33 @@ async def test_stream_review_yields_chunks_then_result(monkeypatch):
     assert results[0].review.summary == "ok"
 
 
+async def test_stream_synthesis_yields_chunks_then_result(monkeypatch):
+    adapter = _FakeAdapter()
+    payload = '{"summary": "consolidated", "findings": [{"criticality": "P1", "title": "t", "description": "d"}]}'
+    captured: dict = {}
+
+    async def fake_invoke(message, **kwargs):
+        captured["message"] = message
+        captured["context"] = kwargs.get("context")
+        yield payload
+
+    monkeypatch.setattr(adapter, "_invoke_stream", fake_invoke)
+
+    events = []
+    async for ev in adapter.stream_synthesis("acme/repo", 7, "candidate findings…"):
+        events.append(ev)
+
+    results = [e for e in events if isinstance(e, ReviewResultEvent)]
+    assert len(results) == 1
+    assert results[0].review.summary == "consolidated"
+    assert [f.priority for f in results[0].review.findings] == ["P1"]
+    # The synthesis prompt (not the review prompt) is used, rendered with the
+    # PR coordinates, and the candidate payload rides in as the context.
+    assert "consolidating the code review" in captured["message"]
+    assert "#7" in captured["message"] and "acme/repo" in captured["message"]
+    assert captured["context"] == "candidate findings…"
+
+
 async def test_stream_review_emits_warning_event_for_stderr_chunks(monkeypatch):
     adapter = _FakeAdapter()
     monkeypatch.setattr(

@@ -42,7 +42,12 @@ from typing import ClassVar, Literal
 
 from app.adapters._subprocess import clean_env
 from app.adapters.ai._parsing import parse_analyze_output, parse_review_output
-from app.adapters.ai._prompts import ANALYZE_PROMPT, FIX_PROMPT, REVIEW_PROMPT
+from app.adapters.ai._prompts import (
+    ANALYZE_PROMPT,
+    FIX_PROMPT,
+    REVIEW_PROMPT,
+    SYNTHESIZE_PROMPT,
+)
 from app.domain.exceptions import ProviderError
 from app.domain.models import Comment
 from app.ports.ai_provider import (
@@ -146,6 +151,7 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
     review_prompt: ClassVar[str] = REVIEW_PROMPT
     fix_prompt: ClassVar[str] = FIX_PROMPT
     analyze_prompt: ClassVar[str] = ANALYZE_PROMPT
+    synthesize_prompt: ClassVar[str] = SYNTHESIZE_PROMPT
 
     def _effective_prompt(self, name: str, default: str) -> str:
         """Return the user's custom prompt for ``name`` or fall back to ``default``.
@@ -506,19 +512,60 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         model: str | None = None,
         timeout: int = DEFAULT_REVIEW_TIMEOUT,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
-        diff_kb = len(diff.encode()) / 1024
-        logger = logging.getLogger(self.cli_name)
-        logger.info(
-            "review | start | provider=%s repo=%s pr=#%d diff=%.1f KB model=%s timeout=%ds",
-            self.cli_name, repo_full_name, pr_number, diff_kb, model or "default", timeout,
-        )
         message = self._effective_prompt("review", self.review_prompt).format(
             pr_number=pr_number, repo_full_name=repo_full_name
+        )
+        async for event in self._stream_structured_review(
+            message, diff, repo_full_name=repo_full_name, pr_number=pr_number,
+            model=model, timeout=timeout, label="review",
+        ):
+            yield event
+
+    async def stream_synthesis(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        synthesis_input: str,
+        model: str | None = None,
+        timeout: int = DEFAULT_REVIEW_TIMEOUT,
+    ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        message = self._effective_prompt("synthesize", self.synthesize_prompt).format(
+            pr_number=pr_number, repo_full_name=repo_full_name
+        )
+        async for event in self._stream_structured_review(
+            message, synthesis_input, repo_full_name=repo_full_name,
+            pr_number=pr_number, model=model, timeout=timeout, label="synthesis",
+        ):
+            yield event
+
+    async def _stream_structured_review(
+        self,
+        message: str,
+        context: str,
+        *,
+        repo_full_name: str,
+        pr_number: int,
+        model: str | None,
+        timeout: int,
+        label: str,
+    ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        """Shared streaming loop for calls that return the review JSON schema.
+
+        Both the review pass and the synthesis pass send an instruction plus a
+        context payload and expect the same ``{"summary", "findings"}`` object
+        back, so they share one loop. ``label`` distinguishes them in logs.
+        """
+        context_kb = len(context.encode()) / 1024
+        logger = logging.getLogger(self.cli_name)
+        logger.info(
+            "%s | start | provider=%s repo=%s pr=#%d context=%.1f KB model=%s timeout=%ds",
+            label, self.cli_name, repo_full_name, pr_number, context_kb,
+            model or "default", timeout,
         )
         chunks: list[str] = []
         warning_lines: list[str] = []
         async for chunk in self._invoke_stream(
-            message, mode="review", context=diff, model=model, timeout=timeout,
+            message, mode="review", context=context, model=model, timeout=timeout,
         ):
             if chunk.startswith(PROGRESS_MARKER):
                 yield ReviewProgressEvent(text=chunk[PROGRESS_MARKER_LEN:])
@@ -534,8 +581,8 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
         full_output = "".join(chunks).strip()
         review = parse_review_output(full_output, provider=self.cli_name)
         logger.info(
-            "review | complete | provider=%s repo=%s pr=#%d findings=%d",
-            self.cli_name, repo_full_name, pr_number, len(review.findings),
+            "%s | complete | provider=%s repo=%s pr=#%d findings=%d",
+            label, self.cli_name, repo_full_name, pr_number, len(review.findings),
         )
         yield ReviewResultEvent(review=review)
 
