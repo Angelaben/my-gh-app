@@ -157,6 +157,83 @@ def extract_hunk_rows(
 
 
 @dataclass
+class ManifestEntry:
+    """Per-file change stats for the cross-chunk PR manifest."""
+
+    path: str
+    additions: int
+    deletions: int
+
+
+def build_manifest(files: list[FileDiff]) -> list[ManifestEntry]:
+    """Compute +/- line counts for every file in the diff (once, up front)."""
+    entries: list[ManifestEntry] = []
+    for f in files:
+        adds = dels = 0
+        for line in f.content.splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                adds += 1
+            elif line.startswith("-") and not line.startswith("---"):
+                dels += 1
+        entries.append(ManifestEntry(path=f.path, additions=adds, deletions=dels))
+    return entries
+
+
+# Cap on the rendered file listing so a PR touching thousands of files can't
+# eat the chunk budget with its own manifest (~4 KB ≈ a few % of the default
+# review_diff_max_chars).
+_MANIFEST_LISTING_BUDGET = 4000
+
+
+def render_chunk_preamble(
+    manifest: list[ManifestEntry],
+    chunk_files: list[str],
+    part: int,
+    total: int,
+    listing_budget: int = _MANIFEST_LISTING_BUDGET,
+) -> str:
+    """Cross-chunk context header prepended to each chunk of a split review.
+
+    Chunked sub-reviews are independent LLM calls; without this header each
+    call sees only its own files and loses the shape of the overall PR. The
+    header restores that context cheaply: the complete list of changed files
+    (with +/- line counts), each flagged as attached to this part or reviewed
+    in another part.
+
+    Files belonging to this chunk are always listed; the rest of the listing
+    is capped at ``listing_budget`` chars with an "and N more" trailer.
+    """
+    in_chunk = set(chunk_files)
+    listing: list[str] = []
+    used = 0
+    omitted = 0
+    for e in manifest:
+        here = e.path in in_chunk
+        marker = "in this part" if here else "in another part"
+        line = f"- {e.path} (+{e.additions}/-{e.deletions}) ({marker})"
+        if not here and used + len(line) > listing_budget:
+            omitted += 1
+            continue
+        used += len(line) + 1
+        listing.append(line)
+    if omitted:
+        listing.append(f"- … and {omitted} more file(s) not listed")
+    return (
+        f"[PR CONTEXT — part {part}/{total} of a large diff]\n"
+        "This PR's diff was too large for a single review call and was split "
+        "into parts reviewed in parallel. The complete list of files changed "
+        'by the PR is below; only the files marked "in this part" are '
+        "attached here. Use the list to reason about cross-file impacts "
+        "(renames, moved logic, callers changed in another part), but report "
+        "findings ONLY on the attached diff.\n"
+        "\n"
+        "All files changed in this PR:\n"
+        + "\n".join(listing)
+        + "\n\n[DIFF PART FOLLOWS]\n"
+    )
+
+
+@dataclass
 class Chunk:
     """A bundle of file diffs sized to fit one LLM call.
 

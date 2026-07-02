@@ -27,6 +27,21 @@ Report every issue you find, including ones you are uncertain about or consider 
 IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
 
 
+SYNTHESIZE_PROMPT = """You are consolidating the code review of Pull Request #{pr_number} from repository {repo_full_name}.
+The PR diff was too large for a single pass, so it was split into parts that were reviewed independently and in parallel. Attached are the complete list of files changed by the PR, the summary each sub-review produced, and every candidate finding they reported (JSON).
+
+Produce the final consolidated review:
+- Merge duplicates: the same underlying issue reported by different parts (possibly with different wording, criticality, or nearby lines) must become ONE finding. Keep the most precise file/line, the clearest description, and the highest criticality among the duplicates.
+- Re-rank criticality consistently across the whole PR using the same scale the sub-reviews used (P0 critical, P1 major, P2 minor, P3 suggestion).
+- Do NOT drop any distinct issue and do NOT invent new findings — every non-duplicate candidate must appear in the output.
+- Write one coherent overall summary of the PR (not a list of per-part summaries): what the PR does, the main risks, and the themes across findings.
+
+Return your response as a JSON object with this exact structure:
+{{"summary": "Coherent overall assessment", "findings": [{{"criticality": "P0", "confidence": "high | medium | low", "title": "Short title", "description": "Detailed explanation", "file": "path/to/file.py or null", "line": "line number or range or null", "suggestion": "Suggested fix if applicable"}}]}}
+
+IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text."""
+
+
 FIX_PROMPT = """You are fixing a code review comment on PR #{pr_number} in {repo_full_name}.
 The reviewer left this comment:
 

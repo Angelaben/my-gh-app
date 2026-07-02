@@ -143,7 +143,9 @@ class TestStreamReviewSplit:
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
             call_diffs.append(sub_diff)
-            tag = "a" if "a.py" in sub_diff else "b"
+            # The PR manifest preamble names every file, so discriminate on
+            # the actual diff section header.
+            tag = "a" if "diff --git a/a.py" in sub_diff else "b"
             yield ReviewChunkEvent(f"text-{tag}")
             yield ReviewResultEvent(
                 Review(
@@ -213,7 +215,7 @@ class TestStreamReviewSplit:
         vcs_port.get_diff.return_value = diff
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 raise ProviderError("claude exited with code 124")
             yield ReviewResultEvent(
                 Review(
@@ -284,7 +286,7 @@ class TestStreamReviewSplit:
         vcs_port.get_diff.return_value = diff
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 yield ReviewResultEvent(
                     Review(summary="a", findings=[
                         Finding(priority="P2", title="low-a", description="d"),
@@ -344,6 +346,215 @@ class TestStreamReviewSplit:
         assert max_in_flight <= 2, f"semaphore breached: max_in_flight={max_in_flight}"
         # Sanity: we did actually overlap (otherwise the cap test is vacuous).
         assert max_in_flight >= 2
+
+
+class TestChunkSharedContext:
+    """Split sub-calls carry a shared PR manifest so they aren't blind to
+    the rest of the change set."""
+
+    async def test_each_chunk_receives_full_pr_manifest(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        diff = (
+            "diff --git a/a.py b/a.py\n"
+            "+new a line\n" + "a" * 130 + "\n"
+            "diff --git a/b.py b/b.py\n"
+            "-old b line\n" + "b" * 130 + "\n"
+        )
+        vcs_port.get_diff.return_value = diff
+        call_diffs: list[str] = []
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            call_diffs.append(sub_diff)
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        _ = [e async for e in service.stream_review("acme/backend", 1)]
+
+        assert len(call_diffs) == 2
+        for sub_diff in call_diffs:
+            # Every sub-call sees the complete file list with change stats.
+            assert "All files changed in this PR:" in sub_diff
+            assert "- a.py (+1/-0)" in sub_diff
+            assert "- b.py (+0/-1)" in sub_diff
+            # Exactly one file is attached; the other is flagged as elsewhere.
+            assert sub_diff.count("(in this part)") == 1
+            assert sub_diff.count("(in another part)") == 1
+            # The preamble precedes the actual diff section.
+            assert "[DIFF PART FOLLOWS]" in sub_diff
+            assert sub_diff.index("[PR CONTEXT") < sub_diff.index("diff --git ")
+
+        # Each part is numbered.
+        parts = sorted(d[d.index("part ") : d.index(" of a large")] for d in call_diffs)
+        assert parts == ["part 1/2", "part 2/2"]
+
+    async def test_single_call_path_has_no_preamble(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "10000")
+        vcs_port.get_diff.return_value = "diff --git a/a.py b/a.py\n+x\n"
+        seen: list[str] = []
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            seen.append(sub_diff)
+            yield ReviewResultEvent(Review(summary="s", findings=[]))
+
+        ai_provider.stream_review = mock_stream
+        _ = [e async for e in service.stream_review("acme/backend", 1)]
+
+        assert len(seen) == 1
+        assert "[PR CONTEXT" not in seen[0]
+        assert seen[0].startswith("diff --git ")
+
+
+def _split_diff() -> str:
+    """Two-file diff that splits into 2 chunks at REVIEW_DIFF_MAX_CHARS=200."""
+    return (
+        "diff --git a/a.py b/a.py\n" + "a" * 130 + "\n"
+        "diff --git a/b.py b/b.py\n" + "b" * 130 + "\n"
+    )
+
+
+def _two_finding_chunk_stream():
+    """stream_review mock: each chunk reports one finding."""
+    async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+        tag = "a" if "diff --git a/a.py" in sub_diff else "b"
+        yield ReviewResultEvent(
+            Review(
+                summary=f"summary-{tag}",
+                findings=[Finding(priority="P1", title=f"finding-{tag}", description="d")],
+            )
+        )
+    return mock_stream
+
+
+class TestSynthesisPass:
+    """Second AI pass consolidating split-review findings."""
+
+    async def test_synthesis_result_replaces_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "1")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        synthesis_inputs: list[str] = []
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            synthesis_inputs.append(synthesis_input)
+            yield ReviewResultEvent(
+                Review(
+                    summary="One coherent summary.",
+                    findings=[Finding(priority="P0", title="consolidated", description="d")],
+                )
+            )
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results) == 1
+        assert results[0].review.summary == "One coherent summary."
+        assert [f.title for f in results[0].review.findings] == ["consolidated"]
+
+        # The synthesis input carries everything needed to consolidate.
+        assert len(synthesis_inputs) == 1
+        payload = synthesis_inputs[0]
+        assert "All files changed in this PR:" in payload
+        assert "- a.py" in payload and "- b.py" in payload
+        assert "summary-a" in payload and "summary-b" in payload
+        assert '"finding-a"' in payload and '"finding-b"' in payload
+
+    async def test_synthesis_failure_keeps_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.domain.exceptions import ProviderError
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            if False:
+                yield
+            raise ProviderError("synthesis boom")
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert sorted(f.title for f in results[0].review.findings) == [
+            "finding-a", "finding-b",
+        ]
+        flat = " ".join(line for w in events if isinstance(w, ReviewWarningEvent) for line in w.lines)
+        assert "Synthesis pass failed" in flat
+
+    async def test_synthesis_empty_result_keeps_mechanical_merge(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            yield ReviewResultEvent(Review(summary="dropped everything", findings=[]))
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert sorted(f.title for f in results[0].review.findings) == [
+            "finding-a", "finding-b",
+        ]
+        flat = " ".join(line for w in events if isinstance(w, ReviewWarningEvent) for line in w.lines)
+        assert "unusable output" in flat
+
+    async def test_synthesis_disabled_by_setting(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "0")
+        vcs_port.get_diff.return_value = _split_diff()
+        ai_provider.stream_review = _two_finding_chunk_stream()
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            raise AssertionError("synthesis must not run when disabled")
+            yield
+
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results[0].review.findings) == 2
+
+    async def test_synthesis_skipped_when_only_one_chunk_succeeds(
+        self, service, ai_provider, vcs_port, monkeypatch
+    ):
+        from app.domain.exceptions import ProviderError
+
+        monkeypatch.setenv("REVIEW_DIFF_MAX_CHARS", "200")
+        vcs_port.get_diff.return_value = _split_diff()
+
+        async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
+            if "diff --git a/a.py" in sub_diff:
+                raise ProviderError("chunk boom")
+            yield ReviewResultEvent(
+                Review(summary="b", findings=[
+                    Finding(priority="P1", title="x", description="d"),
+                    Finding(priority="P2", title="y", description="d"),
+                ])
+            )
+
+        async def mock_synthesis(repo, pr, synthesis_input, model=None, timeout=None):
+            raise AssertionError("synthesis needs >= 2 successful chunks")
+            yield
+
+        ai_provider.stream_review = mock_stream
+        ai_provider.stream_synthesis = mock_synthesis
+        events = [e async for e in service.stream_review("acme/backend", 1)]
+        results = [e for e in events if isinstance(e, ReviewResultEvent)]
+        assert len(results[0].review.findings) == 2
 
 
 class TestIgnoredFiles:
@@ -474,7 +685,7 @@ class TestSplitProgressEvents:
         )
 
         async def mock_stream(repo, pr, sub_diff, model=None, timeout=None):
-            if "a.py" in sub_diff:
+            if "diff --git a/a.py" in sub_diff:
                 raise ProviderError("boom")
             yield ReviewResultEvent(Review(summary="ok", findings=[]))
 

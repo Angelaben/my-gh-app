@@ -2,8 +2,11 @@
 from app.services._diff_splitter import (
     DEFAULT_IGNORE_GLOBS,
     FileDiff,
+    ManifestEntry,
+    build_manifest,
     filter_ignored_files,
     pack_chunks,
+    render_chunk_preamble,
     split_unified_diff,
 )
 
@@ -163,6 +166,37 @@ class TestOversizedFileHunkSplitting:
         assert len(chunks) == 1
         assert chunks[0].truncated_files == ["big.py"]
         assert len(chunks[0].content) <= 2000
+
+
+class TestManifestAndPreamble:
+    def test_build_manifest_counts_added_and_removed_lines(self):
+        files = split_unified_diff(SAMPLE_DIFF)
+        manifest = build_manifest(files)
+        assert [(e.path, e.additions, e.deletions) for e in manifest] == [
+            ("foo.py", 1, 0),
+            ("bar/baz.py", 1, 1),
+            ("README.md", 1, 1),
+        ]
+
+    def test_preamble_lists_all_files_and_marks_membership(self):
+        manifest = build_manifest(split_unified_diff(SAMPLE_DIFF))
+        text = render_chunk_preamble(manifest, ["foo.py"], part=1, total=2)
+        assert "part 1/2" in text
+        assert "- foo.py (+1/-0) (in this part)" in text
+        assert "- bar/baz.py (+1/-1) (in another part)" in text
+        assert "- README.md (+1/-1) (in another part)" in text
+        assert text.rstrip().endswith("[DIFF PART FOLLOWS]")
+
+    def test_preamble_listing_budget_truncates_but_keeps_chunk_files(self):
+        manifest = [ManifestEntry(f"file{i:03d}.py", 1, 0) for i in range(200)]
+        text = render_chunk_preamble(
+            manifest, ["file199.py"], part=2, total=3, listing_budget=500
+        )
+        # The chunk's own file is exempt from the budget…
+        assert "- file199.py (+1/-0) (in this part)" in text
+        # …while the rest of the listing is capped with an explicit trailer.
+        assert "more file(s) not listed" in text
+        assert len(text) < 2000
 
 
 class TestFilterIgnoredFiles:

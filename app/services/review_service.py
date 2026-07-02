@@ -1,14 +1,23 @@
 """ReviewService — orchestrates AI, VCS, and cache ports for PR review.
 
-When the PR diff exceeds REVIEW_DIFF_MAX_CHARS, the review is fanned out
-across multiple parallel sub-calls (one per packed chunk) and the per-chunk
-Reviews are merged into a single Review with a structured summary.
+The whole diff is sent to the provider in a single call whenever it fits
+REVIEW_DIFF_MAX_CHARS (the default is sized for large-context models, so
+splitting is the exception, not the rule). Only above that budget is the
+review fanned out across parallel sub-calls (one per packed chunk); each
+sub-call is prepended with a shared PR manifest — the full list of changed
+files with +/- counts — so independent chunk reviews keep cross-file
+context. The per-chunk Reviews are merged mechanically, then (when
+REVIEW_SYNTHESIS is enabled) handed back to the provider for a synthesis
+pass that dedupes semantically and writes one coherent summary; any
+synthesis failure falls back to the mechanical merge.
 """
 import asyncio
+import json
 import logging
 import time
 from collections import Counter
 from collections.abc import AsyncGenerator
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from app.domain.models import Finding, Review
@@ -26,12 +35,20 @@ from app.services import metrics, settings_store
 from app.services._diff_splitter import (
     Chunk,
     FileDiff,
+    ManifestEntry,
+    build_manifest,
     filter_ignored_files,
     pack_chunks,
+    render_chunk_preamble,
     split_unified_diff,
 )
 
 logger = logging.getLogger(__name__)
+
+# Ceiling on the synthesis-pass input (findings JSON + summaries + manifest).
+# Above this the mechanical merge is kept — re-splitting the synthesis would
+# defeat its purpose.
+_SYNTHESIS_INPUT_MAX_CHARS = 100_000
 
 
 class ReviewService:
@@ -145,6 +162,7 @@ class ReviewService:
         async for event in self._stream_split_review(
             repo_full_name, pr_number, diff, files, model, max_chars, max_concurrency,
             head_sha=head_sha, t0=t0, timeout=timeout, finalize=finalize,
+            synthesis=bool(settings.get("review_synthesis", True)),
         ):
             yield event
 
@@ -288,15 +306,18 @@ class ReviewService:
         t0: float | None = None,
         timeout: int = 300,
         finalize: bool = True,
+        synthesis: bool = True,
     ) -> AsyncGenerator[ReviewStreamEvent, None]:
         if t0 is None:
             t0 = time.monotonic()
         chunks = pack_chunks(files, max_chars)
+        manifest = build_manifest(files)
         truncated = [path for c in chunks for path in c.truncated_files]
 
         warning_lines = [
             f"Diff too large ({len(diff)} chars), split into {len(chunks)} chunks "
-            f"across {len(files)} files."
+            f"across {len(files)} files. Each chunk carries the full PR file "
+            "manifest so sub-reviews keep cross-file context."
         ]
         warning_lines += [f"Truncated file: {p}" for p in truncated]
         yield ReviewWarningEvent(warning_lines)
@@ -326,6 +347,14 @@ class ReviewService:
             tag = f"[chunk {idx}/{total}]"
             review: Review | None = None
             error: BaseException | None = None
+            # Give each independent sub-call the shape of the whole PR so it
+            # can reason about cross-file impacts it cannot see directly.
+            payload = chunk.content
+            if total > 1:
+                payload = (
+                    render_chunk_preamble(manifest, chunk.files, idx, total)
+                    + chunk.content
+                )
             try:
                 async with sem:
                     t_chunk = time.monotonic()
@@ -334,7 +363,7 @@ class ReviewService:
                     ))
                     try:
                         async for ev in self._ai.stream_review(
-                            repo_full_name, pr_number, chunk.content,
+                            repo_full_name, pr_number, payload,
                             model=model, timeout=timeout,
                         ):
                             if isinstance(ev, ReviewProgressEvent):
@@ -414,10 +443,26 @@ class ReviewService:
         findings.sort(key=lambda f: f.priority)
 
         merged = Review(summary=merged_summary, findings=findings)
+
+        # Second pass: hand all chunk results back to the provider so it can
+        # dedupe semantically (the mechanical dedupe only catches identical
+        # file/line/title) and write one coherent summary. Any failure falls
+        # back to the mechanical merge — findings are never lost to synthesis.
+        succeeded = len(chunks) - failed_count
+        if synthesis and succeeded >= 2 and len(findings) >= 2:
+            async for event in self._synthesize_merged_review(
+                repo_full_name, pr_number, merged, manifest, sub_summaries,
+                model=model, timeout=timeout,
+            ):
+                if isinstance(event, ReviewResultEvent):
+                    merged = event.review
+                else:
+                    yield event
+
         logger.info(
             "review-service | split done | repo=%s pr=#%d chunks=%d succeeded=%d failed=%d findings=%d",
             repo_full_name, pr_number, len(chunks),
-            len(chunks) - failed_count, failed_count, len(findings),
+            len(chunks) - failed_count, failed_count, len(merged.findings),
         )
         if finalize:
             self._finalize_review(
@@ -426,6 +471,86 @@ class ReviewService:
                 chunks=len(chunks), files=len(files), failed_chunks=failed_count,
             )
         yield ReviewResultEvent(review=merged)
+
+    async def _synthesize_merged_review(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        merged: Review,
+        manifest: list[ManifestEntry],
+        sub_summaries: list[str],
+        *,
+        model: str | None,
+        timeout: int,
+    ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        """Run the provider's synthesis pass over the mechanically merged review.
+
+        Yields progress/warning/chunk events for the caller to forward, then a
+        final ReviewResultEvent ONLY when synthesis produced a usable Review.
+        No result event means the caller keeps the mechanical merge — a failed
+        or empty synthesis must never lose findings.
+        """
+        synthesis_input = _build_synthesis_input(manifest, sub_summaries, merged.findings)
+        if len(synthesis_input) > _SYNTHESIS_INPUT_MAX_CHARS:
+            yield ReviewProgressEvent(
+                f"[synthesis] skipped — input too large ({len(synthesis_input)} chars)"
+            )
+            return
+
+        t_synth = time.monotonic()
+        yield ReviewProgressEvent(
+            f"[synthesis] consolidating {len(merged.findings)} findings "
+            "from the chunk reviews…"
+        )
+        result: Review | None = None
+        try:
+            async for ev in self._ai.stream_synthesis(
+                repo_full_name, pr_number, synthesis_input,
+                model=model, timeout=timeout,
+            ):
+                if isinstance(ev, ReviewProgressEvent):
+                    yield ReviewProgressEvent(f"[synthesis] {ev.text}")
+                elif isinstance(ev, (ReviewChunkEvent, ReviewWarningEvent)):
+                    yield ev
+                elif isinstance(ev, ReviewResultEvent):
+                    result = ev.review
+        except Exception as exc:  # noqa: BLE001 — synthesis is best-effort
+            logger.warning(
+                "review-service | synthesis failed | repo=%s pr=#%d error=%s",
+                repo_full_name, pr_number, exc,
+            )
+            yield ReviewWarningEvent([
+                f"Synthesis pass failed ({type(exc).__name__}: {exc}); "
+                "keeping the mechanically merged review."
+            ])
+            return
+
+        elapsed = time.monotonic() - t_synth
+        if result is None:
+            yield ReviewProgressEvent(
+                "[synthesis] provider returned no result — keeping the mechanical merge"
+            )
+            return
+        if result.raw_output is not None or not result.findings:
+            # Parse fallback, or every candidate dropped — both smell wrong.
+            yield ReviewWarningEvent([
+                "Synthesis pass returned unusable output; "
+                "keeping the mechanically merged review."
+            ])
+            return
+
+        consolidated = sorted(result.findings, key=lambda f: f.priority)
+        yield ReviewProgressEvent(
+            f"[synthesis] done — {len(consolidated)} findings "
+            f"(from {len(merged.findings)} candidates) — {elapsed:.1f}s"
+        )
+        logger.info(
+            "review-service | synthesis done | repo=%s pr=#%d candidates=%d consolidated=%d",
+            repo_full_name, pr_number, len(merged.findings), len(consolidated),
+        )
+        yield ReviewResultEvent(
+            Review(summary=result.summary or merged.summary, findings=consolidated)
+        )
 
     async def _run_review(self, repo_full_name: str, pr_number: int) -> Review:
         review: Review | None = None
@@ -438,6 +563,30 @@ class ReviewService:
 
     def clear_cache(self, repo_full_name: str, pr_number: int) -> None:
         self._cache.clear_review(repo_full_name, pr_number)
+
+
+def _build_synthesis_input(
+    manifest: list[ManifestEntry],
+    sub_summaries: list[str],
+    findings: list[Finding],
+) -> str:
+    """Assemble the context payload for the synthesis pass."""
+    files_block = "\n".join(
+        f"- {e.path} (+{e.additions}/-{e.deletions})" for e in manifest
+    )
+    summaries_block = "\n".join(
+        f"- [part {i}] {s}" for i, s in enumerate(sub_summaries, start=1)
+    ) or "(none)"
+    findings_json = json.dumps(
+        [{k: v for k, v in asdict(f).items() if v is not None} for f in findings],
+        ensure_ascii=False,
+    )
+    return (
+        "All files changed in this PR:\n" + files_block + "\n\n"
+        "Per-part summaries from the independent sub-reviews:\n"
+        + summaries_block + "\n\n"
+        "Candidate findings (JSON):\n" + findings_json + "\n"
+    )
 
 
 def _dedupe_findings(findings: list[Finding]) -> list[Finding]:

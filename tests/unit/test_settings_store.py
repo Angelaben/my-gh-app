@@ -16,13 +16,29 @@ class TestReviewSettings:
         for env in (
             "REVIEW_TIMEOUT", "REVIEW_DIFF_MAX_CHARS",
             "REVIEW_MAX_CONCURRENCY", "REVIEW_IGNORE_GLOBS",
+            "REVIEW_SYNTHESIS",
         ):
             monkeypatch.delenv(env, raising=False)
         s = ss.get_review_settings()
         assert s["review_timeout"] == ss.DEFAULT_REVIEW_TIMEOUT
         assert s["review_diff_max_chars"] == ss.DEFAULT_DIFF_MAX_CHARS
         assert s["review_max_concurrency"] == ss.DEFAULT_MAX_CONCURRENCY
+        assert s["review_synthesis"] is True
         assert isinstance(s["review_ignore_globs"], list) and s["review_ignore_globs"]
+
+    def test_synthesis_env_falsy_disables(self, monkeypatch):
+        for raw in ("0", "false", "No", "OFF"):
+            monkeypatch.setenv("REVIEW_SYNTHESIS", raw)
+            assert ss.get_review_settings()["review_synthesis"] is False
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "1")
+        assert ss.get_review_settings()["review_synthesis"] is True
+
+    def test_synthesis_save_round_trip_and_env_override(self, monkeypatch):
+        monkeypatch.setenv("REVIEW_SYNTHESIS", "1")
+        ss.save_review_settings({"review_synthesis": False})
+        assert ss.get_review_settings()["review_synthesis"] is False
+        ss.save_review_settings({"review_synthesis": "true"})
+        assert ss.get_review_settings()["review_synthesis"] is True
 
     def test_save_and_read_back(self):
         ss.save_review_settings({"review_timeout": 120, "review_diff_max_chars": 5000})
@@ -58,7 +74,7 @@ class TestReviewSettings:
 class TestPrompts:
     def test_defaults_are_not_custom(self):
         prompts = ss.get_prompts()
-        assert set(prompts) == {"review", "fix", "analyze"}
+        assert set(prompts) == {"review", "fix", "analyze", "synthesize"}
         assert prompts["review"]["is_custom"] is False
         assert prompts["review"]["current"] == ss.DEFAULT_PROMPTS["review"]
 

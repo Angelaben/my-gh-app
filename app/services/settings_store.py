@@ -15,7 +15,12 @@ import os
 import re
 from pathlib import Path
 
-from app.adapters.ai._prompts import ANALYZE_PROMPT, FIX_PROMPT, REVIEW_PROMPT
+from app.adapters.ai._prompts import (
+    ANALYZE_PROMPT,
+    FIX_PROMPT,
+    REVIEW_PROMPT,
+    SYNTHESIZE_PROMPT,
+)
 from app.services._diff_splitter import DEFAULT_IGNORE_GLOBS
 
 logger = logging.getLogger(__name__)
@@ -26,7 +31,11 @@ _PROMPTS_PATH = _CACHE_DIR / "prompts.json"
 
 # Default values for the review knobs (also the lower-/upper-bound guards).
 DEFAULT_REVIEW_TIMEOUT = 300
-DEFAULT_DIFF_MAX_CHARS = 30000
+# Single-call budget. Splitting a diff into independent sub-reviews loses
+# cross-file context, so the default is sized for large-context models
+# (~37K tokens ≈ well within Claude's 200K window) and splitting only kicks
+# in for genuinely huge PRs. Lower it for small-context models.
+DEFAULT_DIFF_MAX_CHARS = 150_000
 DEFAULT_MAX_CONCURRENCY = 3
 
 # key -> (env var, default, min, max)
@@ -36,10 +45,18 @@ _INT_SETTINGS: dict[str, tuple[str, int, int, int]] = {
     "review_max_concurrency": ("REVIEW_MAX_CONCURRENCY", DEFAULT_MAX_CONCURRENCY, 1, 16),
 }
 
+# key -> (env var, default). Env parses "0"/"false"/"no"/"off" as False.
+_BOOL_SETTINGS: dict[str, tuple[str, bool]] = {
+    # Second AI pass after a split review: consolidates per-chunk findings
+    # (semantic dedupe + one coherent summary). Costs one extra provider call.
+    "review_synthesis": ("REVIEW_SYNTHESIS", True),
+}
+
 DEFAULT_PROMPTS: dict[str, str] = {
     "review": REVIEW_PROMPT,
     "fix": FIX_PROMPT,
     "analyze": ANALYZE_PROMPT,
+    "synthesize": SYNTHESIZE_PROMPT,
 }
 
 # Placeholders each prompt is rendered with (see BaseCLIAIAdapter). A custom
@@ -48,6 +65,7 @@ REQUIRED_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
     "review": ("pr_number", "repo_full_name"),
     "analyze": ("pr_number", "repo_full_name"),
     "fix": ("pr_number", "repo_full_name", "comment_body"),
+    "synthesize": ("pr_number", "repo_full_name"),
 }
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
@@ -93,6 +111,24 @@ def _env_int(env: str, default: int) -> int:
     return default
 
 
+_FALSY = frozenset({"0", "false", "no", "off"})
+
+
+def _env_bool(env: str, default: bool) -> bool:
+    """Parse a boolean env var; unset/empty → ``default``."""
+    raw = os.getenv(env)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() not in _FALSY
+
+
+def _coerce_bool(value: object) -> bool:
+    """Coerce a stored/UI value ("false", 0, True, …) into a bool."""
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY
+    return bool(value)
+
+
 def _effective_globs(stored: dict) -> list[str]:
     if "review_ignore_globs" in stored:
         value = stored["review_ignore_globs"]
@@ -118,12 +154,15 @@ def get_review_settings() -> dict:
             except (TypeError, ValueError):
                 pass
         out[key] = _env_int(env, default)
+    for key, (env, default) in _BOOL_SETTINGS.items():
+        out[key] = _coerce_bool(stored[key]) if key in stored else _env_bool(env, default)
     out["review_ignore_globs"] = _effective_globs(stored)
     return out
 
 
 def default_review_settings() -> dict:
     out: dict = {key: default for key, (_env, default, _lo, _hi) in _INT_SETTINGS.items()}
+    out.update({key: default for key, (_env, default) in _BOOL_SETTINGS.items()})
     out["review_ignore_globs"] = list(DEFAULT_IGNORE_GLOBS)
     return out
 
@@ -141,6 +180,9 @@ def save_review_settings(partial: dict) -> dict:
         if not (lo <= value <= hi):
             raise ValueError(f"{key} must be between {lo} and {hi}")
         stored[key] = value
+    for key in _BOOL_SETTINGS:
+        if key in partial and partial[key] is not None:
+            stored[key] = _coerce_bool(partial[key])
     if "review_ignore_globs" in partial:
         value = partial["review_ignore_globs"]
         if isinstance(value, str):

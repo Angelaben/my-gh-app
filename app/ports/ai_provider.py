@@ -75,6 +75,26 @@ class AIProvider(ABC):
         """
         yield
 
+    async def stream_synthesis(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        synthesis_input: str,
+        model: str | None = None,
+        timeout: int = 300,
+    ) -> AsyncGenerator[ReviewStreamEvent, None]:
+        """Optional second pass: consolidate per-chunk reviews into one Review.
+
+        ``synthesis_input`` carries the candidate findings, per-chunk summaries
+        and PR file manifest. Implementations must yield a final
+        ReviewResultEvent whose Review is the consolidated result.
+
+        The default yields nothing — providers that don't implement synthesis
+        stay valid, and ReviewService falls back to its mechanical merge.
+        """
+        return
+        yield  # pragma: no cover — makes this an async generator
+
     @abstractmethod
     async def analyze_comments(
         self, repo_full_name: str, pr_number: int, comments: list[Comment]

@@ -432,6 +432,7 @@ class SettingsUpdate(BaseModel):
     review_timeout: int | None = None
     review_diff_max_chars: int | None = None
     review_max_concurrency: int | None = None
+    review_synthesis: bool | None = None
     review_ignore_globs: list[str] | None = None
 
 
