@@ -3,8 +3,9 @@ import type { Toast, ToastType } from '../lib/types';
 
 export const toasts = writable<Toast[]>([]);
 
-/** Top-level view: the normal repo/PR workspace, or the Activity (metrics + logs) page. */
-export const activeView = writable<'workspace' | 'activity'>('workspace');
+/** Top-level view: the repo/PR workspace, the Activity (metrics + logs) page,
+ * or the Live Review (background PR watcher) page. */
+export const activeView = writable<'workspace' | 'activity' | 'live-review'>('workspace');
 
 /** Which AI provider is active (fetched from /api/providers, updatable at runtime). */
 export const aiProvider = writable<string>('');

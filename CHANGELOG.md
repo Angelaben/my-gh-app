@@ -48,6 +48,19 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`app/adapters/ai/_skills.py`) is idempotent, never overwrites a same-named
   global Skill the user owns, and is best-effort (a failure can't stop the
   server booting). Override the source dir with `GH_REVIEW_SKILLS_DIR`.
+- **Live Review tab — opt-in background PR watcher.** A new topbar tab with
+  a Start/Stop toggle and an activity feed. While started, the backend polls
+  every registered repo on a configurable interval
+  (`live_review_poll_interval`, default 5 minutes, settable from Settings or
+  `LIVE_REVIEW_POLL_INTERVAL`) and auto-triggers a review for any open
+  non-draft PR that has no review yet or whose head SHA moved since its last
+  review (comment activity alone — including the tool's own published
+  comments — never re-triggers). Results land in the normal review cache, so
+  they show up in each PR's Review tab exactly like a manual run. Stop halts
+  only the polling: in-flight reviews finish. When off, nothing polls
+  GitHub. Served by `POST /api/live-review/start|stop`,
+  `GET /api/live-review/status|events` and an SSE feed at
+  `GET /api/live-review/stream`.
 - **Hexagonal AI-adapter base class.** A new `BaseCLIAIAdapter`
   (`app/adapters/ai/_base.py`) consolidates the subprocess / streaming /
   parsing plumbing that used to be duplicated across `OpenCodeAdapter` and
