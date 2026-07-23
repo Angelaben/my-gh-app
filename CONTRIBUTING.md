@@ -12,6 +12,13 @@ Thank you for your interest in contributing! This document covers development se
 - **At least one AI provider CLI** — [`opencode`](https://opencode.ai) (default)
   or [`claude`](https://docs.claude.com/claude-code), installed and in PATH
 
+> This section covers the **native** setup, which is what you want for
+> day-to-day development (fast reload, no image rebuilds). End users running
+> the tool rather than developing it should default to Docker instead — see
+> [README.md#installation-docker-default](README.md#installation-docker-default).
+> If you touch `Dockerfile`, `docker-compose.yml`, or `docker-launch.sh`,
+> rebuild and smoke-test with `./docker-launch.sh` before opening a PR.
+
 ---
 
 ## Development Setup

@@ -7,6 +7,18 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Docker support, now the default way to run the tool.** A `Dockerfile`
+  (multi-stage: frontend build → AI CLI install → Python runtime) and
+  `docker-compose.yml` package the backend, the built frontend, `git`,
+  `gh`, and both `opencode`/`claude` CLIs into one image. Credentials are
+  bind-mounted read-only from the host (`gh auth login`, `opencode auth
+  login`, `claude` still run natively) rather than baked into the image.
+  `docker-launch.sh` wraps `docker compose` with the same `--provider`/
+  `--port` flags `launch.sh` already exposes. The native `uv run uvicorn`
+  / `launch.sh` workflow is unchanged and still fully supported for
+  development.
+
 ### Changed
 - **`claude-code` is re-enabled as a first-class provider.** The
   `ENABLE_CLAUDE_CODE` feature flag is removed: the provider is always

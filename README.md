@@ -32,7 +32,8 @@
 - [Who is this for?](#who-is-this-for)
 - [How it compares to hosted AI review tools](#how-it-compares-to-hosted-ai-review-tools)
 - [Prerequisites](#prerequisites)
-- [Installation](#installation)
+- [Installation (Docker, default)](#installation-docker-default)
+- [Native install (without Docker)](#native-install-without-docker)
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Claude Code model notes](#claude-code-model-notes)
@@ -79,10 +80,9 @@ If you want a hosted SaaS that auto-reviews every PR — this is not that. See [
 
 ## Prerequisites
 
-- **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/) (fast Python package manager)
-- **Node.js 18+** and `npm` (for the Svelte 5 frontend build)
-- **[GitHub CLI (`gh`)](https://cli.github.com/)** — authenticated via `gh auth login`
-- **An AI CLI provider** — at least one of:
+- **[Docker](https://docs.docker.com/get-docker/)** with the Compose plugin — the default, recommended way to run the tool (see below). Or, for a native install: **Python 3.12+** + [`uv`](https://docs.astral.sh/uv/), and **Node.js 18+** + `npm`.
+- **[GitHub CLI (`gh`)](https://cli.github.com/)** — authenticated via `gh auth login` **on the host** (the container mounts this auth rather than logging in itself).
+- **An AI CLI provider**, also authenticated on the host — at least one of:
   - **[opencode CLI](https://opencode.ai)** — default provider, supports OpenRouter / Anthropic / OpenAI / local models
   - **[Claude Code CLI](https://docs.claude.com/claude-code)** — uses the
     universal model aliases (see [Claude Code model notes](#claude-code-model-notes))
@@ -91,7 +91,47 @@ If you want a hosted SaaS that auto-reviews every PR — this is not that. See [
 
 ---
 
-## Installation
+## Installation (Docker, default)
+
+The tool ships a `Dockerfile` and `docker-compose.yml` that bundle the Python backend, the built frontend, `git`, `gh`, and both AI CLIs (`opencode` + `claude`) into one image. Credentials are **not** baked in — they're bind-mounted read-only from your host, so authenticate natively first:
+
+```bash
+gh auth login          # GitHub CLI
+opencode auth login    # and/or: claude   (interactive login)
+```
+
+Then build and run:
+
+```bash
+# Choose either SSH or HTTPS:
+git clone git@github.com:Angelaben/my-gh-app.git
+# git clone https://github.com/Angelaben/my-gh-app.git
+cd my-gh-app
+
+./docker-launch.sh                          # default provider (opencode), port 8000
+./docker-launch.sh --provider claude-code   # use Claude Code
+./docker-launch.sh --port 9000              # custom host port
+./docker-launch.sh -d                       # detached (background)
+./docker-launch.sh --down                   # stop and remove the container
+./docker-launch.sh --help                   # full usage
+```
+
+`docker-launch.sh` is a thin wrapper around `docker compose`; `docker compose up --build` works identically if you'd rather call it directly. Open **<http://localhost:8000>**.
+
+App data (cache, settings, metrics) and git worktrees persist in named Docker volumes (`gh-review-cache`, `gh-review-worktrees`) across restarts and rebuilds. See the comments in `docker-compose.yml` if your `opencode`/Claude Code config lives at a non-default path, or if you only use one of the two providers and want to drop the other's mount.
+
+### Updating (Docker)
+
+```bash
+git pull
+./docker-launch.sh   # rebuilds the image and restarts
+```
+
+---
+
+## Native install (without Docker)
+
+Prefer running directly on the host — e.g. for development, or without Docker available? The tool still supports that:
 
 ```bash
 # Choose either SSH or HTTPS:
@@ -119,7 +159,7 @@ Open **<http://localhost:8000>** in your browser. That's it — no config files,
 
 ### One-shot dev launcher (optional)
 
-If you have `tmux` installed, `./launch.sh` boots backend + frontend dev server in a single split window:
+If you have `tmux` installed, `./launch.sh` boots backend + frontend dev server in a single split window — handy for development, since it runs the backend with `--reload` and the frontend as a hot-reloading Vite dev server rather than a prebuilt bundle:
 
 ```bash
 ./launch.sh                          # default provider (opencode)
@@ -228,6 +268,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full architecture overview, inclu
 
 ## Updating
 
+**Docker:**
+```bash
+git pull
+./docker-launch.sh
+```
+
+**Native:**
 ```bash
 git pull
 
@@ -261,7 +308,10 @@ The AI provider may be waiting for credentials. For `opencode`, run `opencode au
 This usually means an inline comment line is outside the PR diff, or you're trying to *Request Changes* on your own PR (GitHub forbids self-`REQUEST_CHANGES`). The adapter falls back automatically — check the server log for the underlying GitHub message.
 
 **Port already in use**
-Change the port: `uv run uvicorn app.main:app --port 8001`.
+Docker: `./docker-launch.sh --port 8001`. Native: `uv run uvicorn app.main:app --port 8001`.
+
+**Docker: reviews fail with "CLI not found" or auth errors**
+The image bundles `opencode` and `claude`, but not their credentials. Authenticate natively on the host first (`opencode auth login` / `claude`) so `docker-compose.yml`'s bind mounts have something to mount — Docker silently creates an empty directory for a mount source that doesn't exist yet, which looks like a fresh, logged-out install inside the container. Same for `gh`: run `gh auth login` on the host before starting the container.
 
 **Worktree errors or stale fix sessions**
 Worktrees can be deleted via the in-UI worktree manager, or manually:
