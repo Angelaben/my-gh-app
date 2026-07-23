@@ -9,6 +9,7 @@
     resetPrompt,
   } from '../stores/settings';
   import { showToast } from '../stores/ui';
+  import { startLiveReview, stopLiveReview } from '../stores/liveReview';
   import type { PromptName } from '../lib/types';
 
   let tab = $state<'review' | 'prompts'>('review');
@@ -21,6 +22,8 @@
   let synthesis = $state(true);
   let globs = $state('');
   let livePollInterval = $state(300);
+  let autostart = $state(false);
+  let prRefreshInterval = $state(900);
 
   $effect(() => {
     const s = $reviewSettings;
@@ -31,6 +34,8 @@
       synthesis = s.review_synthesis;
       globs = s.review_ignore_globs.join(', ');
       livePollInterval = s.live_review_poll_interval;
+      autostart = s.live_review_autostart;
+      prRefreshInterval = s.pr_list_refresh_interval;
     }
   });
 
@@ -70,6 +75,9 @@
 
   async function onSaveReview(): Promise<void> {
     busy = true;
+    // Remember whether auto-review was on before saving so we can flip the live
+    // watcher only when the toggle actually changes.
+    const wasAutostart = $reviewSettings?.live_review_autostart ?? false;
     try {
       await saveSettings({
         review_timeout: timeout,
@@ -78,7 +86,17 @@
         review_synthesis: synthesis,
         review_ignore_globs: splitGlobs(globs),
         live_review_poll_interval: livePollInterval,
+        live_review_autostart: autostart,
+        pr_list_refresh_interval: prRefreshInterval,
       });
+      // Make the toggle a true live switch, not just a next-boot preference.
+      if (autostart !== wasAutostart) {
+        try {
+          await (autostart ? startLiveReview() : stopLiveReview());
+        } catch {
+          /* non-fatal — the preference is saved; the Live tab can retry */
+        }
+      }
       showToast('Settings saved', 'success');
     } catch (e) {
       showToast(errMsg(e, 'Failed to save settings'), 'error');
@@ -188,6 +206,16 @@
             <label for="set-livepoll">Live review poll (s)</label>
             <input id="set-livepoll" class="num" type="number" min="60" max="86400" bind:value={livePollInterval} />
             <span class="hint">60–86400 · applies on the next cycle</span>
+          </div>
+          <div class="field">
+            <label for="set-autostart">Auto-review mode</label>
+            <input id="set-autostart" type="checkbox" bind:checked={autostart} />
+            <span class="hint">start the live watcher at boot &amp; on save (review-auto)</span>
+          </div>
+          <div class="field">
+            <label for="set-prrefresh">Open-PR list refresh (s)</label>
+            <input id="set-prrefresh" class="num" type="number" min="30" max="86400" bind:value={prRefreshInterval} />
+            <span class="hint">30–86400 · auto-refreshes the open-PR list</span>
           </div>
           <div class="field full">
             <label for="set-globs">Ignore globs</label>

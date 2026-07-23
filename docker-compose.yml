@@ -24,6 +24,10 @@ services:
       REVIEW_SYNTHESIS: "${REVIEW_SYNTHESIS:-}"
       REVIEW_IGNORE_GLOBS: "${REVIEW_IGNORE_GLOBS:-}"
       PR_LIST_LIMIT: "${PR_LIST_LIMIT:-}"
+      PR_LIST_REFRESH_INTERVAL: "${PR_LIST_REFRESH_INTERVAL:-}"
+      # "review-auto" mode: start the auto-review watcher at boot (set by
+      # docker-launch.sh --mode review-auto).
+      LIVE_REVIEW_AUTOSTART: "${LIVE_REVIEW_AUTOSTART:-}"
     volumes:
       # App data: JSON cache, settings/prompt overrides, metrics — persists
       # across container restarts/rebuilds.

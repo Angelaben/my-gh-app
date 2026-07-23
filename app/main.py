@@ -8,6 +8,7 @@ import shutil
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,7 +72,20 @@ for _handler in logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="gh-review-tool")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """"review-auto" container mode: start the Live Review watcher at boot so
+    auto-review is already running when the UI opens (no manual Start). Runs on
+    the event loop, so the poll task created by ``start()`` is scheduled
+    correctly. ``_live_review_service`` is a module global created below."""
+    if settings_store.get_review_settings()["live_review_autostart"]:
+        _live_review_service.start()
+        logger.info("live-review | auto-started at boot (review-auto mode)")
+    yield
+
+
+app = FastAPI(title="gh-review-tool", lifespan=_lifespan)
 
 
 @app.middleware("http")
@@ -449,6 +463,8 @@ class SettingsUpdate(BaseModel):
     review_synthesis: bool | None = None
     review_ignore_globs: list[str] | None = None
     live_review_poll_interval: int | None = None
+    live_review_autostart: bool | None = None
+    pr_list_refresh_interval: int | None = None
 
 
 class PromptUpdate(BaseModel):
@@ -535,6 +551,37 @@ def refresh_prs(owner: str, repo: str):
     except Exception as e:
         logger.exception("refresh_prs | failed | repo=%s", full_name)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/review/pending")
+async def review_pending():
+    """Per-repo count of open non-draft PRs that appear to need a (re)review.
+
+    Backs the sidebar "needs-review" pastille. For each registered repo it runs
+    one ``gh pr list`` (also warming the PR cache) and sums
+    ``ReviewService.needs_review_estimate`` over the non-draft PRs. One bad repo
+    must not fail the whole response, mirroring the Live Review poll cycle.
+    """
+    by_repo: dict[str, int] = {}
+    for repo in _cache.get_repos():
+        full_name = repo["full_name"]
+        try:
+            prs = await asyncio.to_thread(_vcs.list_prs, full_name)
+        except Exception as exc:  # noqa: BLE001 — one bad repo must not break the summary
+            logger.warning("review_pending | list_prs failed | repo=%s | %s", full_name, exc)
+            continue
+        count = 0
+        for pr in prs:
+            if pr.is_draft:
+                continue
+            try:
+                cached = _cache.get_review(full_name, pr.number)
+            except Exception:  # noqa: BLE001 — unreadable cache → treat as "unknown", skip
+                continue
+            if _review_service.needs_review_estimate(pr, cached):
+                count += 1
+        by_repo[full_name] = count
+    return {"by_repo": by_repo, "total": sum(by_repo.values())}
 
 
 # --- PR detail ---
