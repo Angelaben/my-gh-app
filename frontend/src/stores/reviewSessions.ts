@@ -128,7 +128,7 @@ function handleEvent(key: string, event: SSEReviewEvent): void {
  * existing session for the same PR. There is no concurrency cap: each call
  * opens its own SSE stream and the backend handles them independently.
  */
-export function startReview(repo: Repo, pr: PR, rerun = false): void {
+export function startReview(repo: Repo, pr: PR, rerun = false, timeout?: number): void {
   const key = prKey(repo.owner, repo.name, pr.number);
   get(reviewSessions).get(key)?.cleanup?.();
 
@@ -142,6 +142,7 @@ export function startReview(repo: Repo, pr: PR, rerun = false): void {
     (event) => handleEvent(key, event),
     rerun,
     get(selectedModel) || undefined,
+    timeout,
   );
 
   const session: ReviewSession = {
