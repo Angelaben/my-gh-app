@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { PR, Repo } from '../lib/types';
 import { reviewSessions, prKey, startReview, stopReview } from './reviewSessions';
+import { reviewSettings } from './settings';
 
 interface QueueItem {
   repo: Repo;
@@ -11,10 +12,18 @@ interface QueueItem {
 interface QueueState {
   items: QueueItem[]; // pending, FIFO
   runningKeys: string[]; // keys we started and that are still in flight
-  concurrency: number;
+  concurrency: number; // max PR reviews to run at once (from review_max_concurrency)
 }
 
-export const reviewQueue = writable<QueueState>({ items: [], runningKeys: [], concurrency: 2 });
+// Bootstrap cap used only until real settings load — matches the backend
+// DEFAULT_MAX_CONCURRENCY so the first batch behaves sanely even offline.
+const DEFAULT_CONCURRENCY = 3;
+
+export const reviewQueue = writable<QueueState>({
+  items: [],
+  runningKeys: [],
+  concurrency: DEFAULT_CONCURRENCY,
+});
 export const queueOpen = writable<boolean>(false);
 
 /** Selection mode in the PR list + the set of selected PR numbers. */
@@ -45,14 +54,14 @@ function pump(): void {
   });
 }
 
-export function enqueueReviews(repo: Repo, prsToQueue: PR[], concurrency = 2): void {
+export function enqueueReviews(repo: Repo, prsToQueue: PR[]): void {
   if (prsToQueue.length === 0) return;
   reviewQueue.update((q) => {
     const known = new Set([...q.items.map((i) => i.key), ...q.runningKeys]);
     const fresh = prsToQueue
       .map((pr) => ({ repo, pr, key: prKey(repo.owner, repo.name, pr.number) }))
       .filter((i) => !known.has(i.key));
-    return { ...q, items: [...q.items, ...fresh], concurrency: Math.max(1, concurrency) };
+    return { ...q, items: [...q.items, ...fresh] };
   });
   queueOpen.set(true);
   pump();
@@ -83,4 +92,14 @@ export function toggleSelected(prNumber: number): void {
 reviewSessions.subscribe(() => {
   const q = get(reviewQueue);
   if (q.items.length > 0 || q.runningKeys.length > 0) pump();
+});
+
+// The configured "max concurrent reviews" cap owns the queue's concurrency.
+// It's loaded at app startup and refreshed on every settings save, so the
+// queue always reflects the real value — no stale per-call override. Raising
+// the cap immediately pumps any pending reviews into the freed slots.
+reviewSettings.subscribe((s) => {
+  if (!s) return;
+  reviewQueue.update((q) => ({ ...q, concurrency: Math.max(1, s.review_max_concurrency) }));
+  pump();
 });
