@@ -12,6 +12,7 @@
   import ActivityPage from './components/ActivityPage.svelte';
   import LiveReviewPage from './components/LiveReviewPage.svelte';
   import { initLiveReview } from './stores/liveReview';
+  import { loadSettings } from './stores/settings';
   import ProviderModal from './components/ProviderModal.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
   import ReviewQueue from './components/ReviewQueue.svelte';
@@ -70,7 +71,16 @@
 
   // Live review feed connects at app level so auto-review toasts and the
   // topbar "Live" indicator work regardless of the active view.
-  onMount(() => { loadRepos(); void initLiveReview(); });
+  //
+  // Settings are loaded eagerly (not just when the Settings modal opens) so
+  // the review queue's max-concurrency cap reflects the configured value from
+  // the very first batch review — otherwise it silently falls back to the
+  // bootstrap default until the user happens to open Settings.
+  onMount(() => {
+    loadRepos();
+    void initLiveReview();
+    void loadSettings().catch(() => { /* queue keeps its default cap */ });
+  });
 
   $effect(() => {
     // Clear stale comment data whenever the active PR changes. Review state

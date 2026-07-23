@@ -9,7 +9,6 @@
     enqueueReviews,
     clearSelection,
   } from '../stores/reviewQueue';
-  import { reviewSettings } from '../stores/settings';
   import { hydrateRepoReviews } from '../stores/reviewSessions';
   import type { Repo, PR } from '../lib/types';
   import PRItem from './PRItem.svelte';
@@ -45,7 +44,7 @@
       showToast('Select at least one PR', 'info');
       return;
     }
-    enqueueReviews(repo, chosen, $reviewSettings?.review_max_concurrency ?? 2);
+    enqueueReviews(repo, chosen);
     selectionMode.set(false);
     clearSelection();
     showToast(`Queued ${chosen.length} review${chosen.length === 1 ? '' : 's'}`, 'success');
