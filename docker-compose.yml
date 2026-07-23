@@ -6,6 +6,12 @@
 # itself. Docker only bind-mounts files/dirs that already exist, so an
 # unauthenticated CLI's config path will otherwise be silently created
 # empty on the host.
+#
+# macOS gotcha: recent gh versions store the token in the system Keychain
+# by default, so ~/.config/gh/hosts.yml has no oauth_token field and the
+# container (no Keychain access) gets HTTP 401s even though `gh auth
+# status` looks fine on the host. Fix: re-login with plaintext storage —
+#   gh auth token | gh auth login --hostname github.com --with-token --insecure-storage
 services:
   gh-review-tool:
     build:

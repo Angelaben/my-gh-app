@@ -120,6 +120,12 @@ cd my-gh-app
 
 App data (cache, settings, metrics) and git worktrees persist in named Docker volumes (`gh-review-cache`, `gh-review-worktrees`) across restarts and rebuilds. See the comments in `docker-compose.yml` if your `opencode`/Claude Code config lives at a non-default path, or if you only use one of the two providers and want to drop the other's mount.
 
+> **macOS: `gh` calls in the container fail with `HTTP 401`?** Recent `gh` versions store your token in the system Keychain instead of `~/.config/gh/hosts.yml`, so the read-only bind mount has no credentials for the container to find even though `gh auth status` looks fine on the host. Fix it by re-authenticating with plaintext storage:
+> ```bash
+> gh auth token | gh auth login --hostname github.com --with-token --insecure-storage
+> ```
+> No container restart needed — `hosts.yml` is bind-mounted live.
+
 ### Updating (Docker)
 
 ```bash
