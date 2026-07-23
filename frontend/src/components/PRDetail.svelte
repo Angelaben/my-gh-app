@@ -1,5 +1,6 @@
 <script lang="ts">
   import { activeTab, loadComments, newCommentIds } from '../stores/prs';
+  import { hydrateReview } from '../stores/reviewSessions';
   import type { Repo, PR } from '../lib/types';
   import ReviewTab from './ReviewTab.svelte';
   import CommentsTab from './CommentsTab.svelte';
@@ -10,6 +11,9 @@
   // are new since the last visit (loadComments is idempotent per PR).
   $effect(() => {
     loadComments(repo.owner, repo.name, pr.number).catch(() => {});
+    // Restore a completed review from the server cache so a page reload lands
+    // back on the results view instead of the idle "Run Review" state.
+    hydrateReview(repo, pr).catch(() => {});
   });
 </script>
 

@@ -13,7 +13,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -670,6 +670,57 @@ def _serialize_review(review) -> dict:
 
 
 # --- Review endpoints ---
+
+@app.get("/api/reviews/{owner}/{repo}")
+async def list_cached_reviews(
+    owner: str,
+    repo: str,
+    svc: ReviewService = Depends(get_review_service),
+):
+    """Return every persisted review for a repo, keyed by PR number.
+
+    Read-only cache lookup — never runs a review. Used by the frontend to
+    restore the sidebar "reviewed" badges after a page reload. Staleness is
+    intentionally not computed here (it would cost one VCS call per PR); the
+    per-PR GET endpoint computes it when a PR is opened.
+    """
+    try:
+        reviews = svc.list_cached_reviews(f"{owner}/{repo}")
+        return {
+            "reviews": [
+                {**_serialize_review(review), "pr_number": pr_number}
+                for pr_number, review in reviews.items()
+            ]
+        }
+    except Exception as e:
+        logger.exception("list_cached_reviews | failed | repo=%s/%s", owner, repo)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/review/{owner}/{repo}/{pr_number}")
+async def get_cached_review(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    svc: ReviewService = Depends(get_review_service),
+):
+    """Return the persisted review for a PR, or 204 if none is cached.
+
+    Read-only cache lookup — never runs a review (unlike the POST at this
+    path). Used by the frontend to restore a completed review after a reload.
+    """
+    try:
+        full_name = f"{owner}/{repo}"
+        review = svc.get_cached_review(full_name, pr_number)
+        if review is None:
+            return Response(status_code=204)
+        result = _serialize_review(review)
+        result["stale"] = svc.is_review_stale(full_name, pr_number, review)
+        return result
+    except Exception as e:
+        logger.exception("get_cached_review | failed | repo=%s/%s pr=#%d", owner, repo, pr_number)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @app.post("/api/review/{owner}/{repo}/{pr_number}")
 async def run_review(
