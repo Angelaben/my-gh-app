@@ -46,8 +46,9 @@ services:
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       # opencode auth/config — omit this pair if you only use Claude Code.
       # Paths match the current opencode CLI; adjust if your version differs.
+      # Read-write: opencode writes session/repo state (e.g. repos/) back to it.
       - ${HOME}/.config/opencode:/root/.config/opencode:ro
-      - ${HOME}/.local/share/opencode:/root/.local/share/opencode:ro
+      - ${HOME}/.local/share/opencode:/root/.local/share/opencode
       # Claude Code auth/config — omit this pair if you only use opencode.
       # Read-write: Claude Code writes session/project state back to it.
       - ${HOME}/.claude:/root/.claude
