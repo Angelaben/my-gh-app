@@ -18,7 +18,7 @@
 FROM node:20-slim AS frontend-build
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
 # vite.config.ts sets outDir: '../dist', so the build lands at /dist, not
@@ -26,14 +26,17 @@ RUN npm run build
 
 # ---- Stage 2: AI provider CLIs ----------------------------------------------
 FROM node:20-slim AS ai-clis
-RUN npm install -g opencode-ai @anthropic-ai/claude-code
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g opencode-ai @anthropic-ai/claude-code
 
 # ---- Stage 3: runtime --------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
 # git: required by the worktree/fix flow. curl+gnupg: only needed transiently
 # to add the gh CLI apt repo, then removed to keep the image lean.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates gnupg \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -43,8 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
-    && apt-get purge -y gnupg && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get purge -y gnupg && apt-get autoremove -y
 
 # Node runtime + the two AI CLIs, copied from the ai-clis stage (no npm
 # registry access needed in this stage, and no npm/npx carried over — the
@@ -62,10 +64,12 @@ WORKDIR /app
 # Install Python deps in their own layer so `uv sync` is cached across
 # frontend/app code changes.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
 
 COPY app ./app
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 COPY --from=frontend-build /dist ./dist
 

@@ -6,6 +6,12 @@
 # itself. Docker only bind-mounts files/dirs that already exist, so an
 # unauthenticated CLI's config path will otherwise be silently created
 # empty on the host.
+#
+# macOS gotcha: recent gh versions store the token in the system Keychain
+# by default, so ~/.config/gh/hosts.yml has no oauth_token field and the
+# container (no Keychain access) gets HTTP 401s even though `gh auth
+# status` looks fine on the host. Fix: re-login with plaintext storage —
+#   gh auth token | gh auth login --hostname github.com --with-token --insecure-storage
 services:
   gh-review-tool:
     build:
@@ -14,7 +20,7 @@ services:
     image: gh-review-tool:latest
     container_name: gh-review-tool
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-4500}:8000"
     environment:
       AI_PROVIDER: "${AI_PROVIDER:-opencode}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
@@ -40,8 +46,9 @@ services:
       - ${HOME}/.gitconfig:/root/.gitconfig:ro
       # opencode auth/config — omit this pair if you only use Claude Code.
       # Paths match the current opencode CLI; adjust if your version differs.
+      # Read-write: opencode writes session/repo state (e.g. repos/) back to it.
       - ${HOME}/.config/opencode:/root/.config/opencode:ro
-      - ${HOME}/.local/share/opencode:/root/.local/share/opencode:ro
+      - ${HOME}/.local/share/opencode:/root/.local/share/opencode
       # Claude Code auth/config — omit this pair if you only use opencode.
       # Read-write: Claude Code writes session/project state back to it.
       - ${HOME}/.claude:/root/.claude

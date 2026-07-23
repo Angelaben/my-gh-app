@@ -314,15 +314,20 @@ async def test_stream_cli_classify_stderr_info_emits_progress_marker(monkeypatch
     assert all("> step one" not in w and "✓ done" not in w for w in warnings)
 
 
-async def test_stream_cli_emits_warning_on_nonzero_exit_with_no_stdout(monkeypatch):
+async def test_stream_cli_raises_on_nonzero_exit_with_no_stdout_even_when_lenient(monkeypatch):
+    """A crash that produces zero stdout has nothing salvageable — leniency
+    (raise_on_nonzero_exit=False) must not downgrade it to a silent, hollow
+    "0 findings" success. The warning lines are still emitted first so the
+    caller can see what happened."""
     captured: dict = {}
     proc = _FakeProc([], [b"some failure\n"], 2)
     _patch_subprocess(monkeypatch, proc, captured)
 
-    adapter = _FakeAdapter()
+    adapter = _FakeAdapter()  # raise_on_nonzero_exit=False by default
     chunks = []
-    async for chunk in adapter.stream_cli("hi", mode="generate"):
-        chunks.append(chunk)
+    with pytest.raises(ProviderError, match="fake exited with code 2"):
+        async for chunk in adapter.stream_cli("hi", mode="generate"):
+            chunks.append(chunk)
 
     stderr_payloads = [c[len(STDERR_MARKER):] for c in chunks if c.startswith(STDERR_MARKER)]
     assert any("exited with code 2 and produced no output" in p for p in stderr_payloads)
