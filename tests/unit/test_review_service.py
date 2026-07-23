@@ -791,3 +791,38 @@ class TestSettingsEnv:
         s = ss.get_review_settings()
         assert s["review_diff_max_chars"] == 12345
         assert s["review_max_concurrency"] == 7
+
+
+def _make_pr(number: int = 1, updated_at: str = "2026-01-01T00:00:00Z", is_draft: bool = False):
+    from app.domain.models import PR
+    return PR(
+        number=number, title="t", author="a", branch="b", base_branch="main",
+        additions=1, deletions=0, updated_at=updated_at, url="u", is_draft=is_draft,
+    )
+
+
+class TestNeedsReviewEstimate:
+    def test_never_reviewed_needs_review(self, service):
+        assert service.needs_review_estimate(_make_pr(), None) is True
+
+    def test_review_without_head_sha_skipped(self, service):
+        review = Review(summary="s", findings=[], head_sha=None, created_at="2026-01-01T00:00:00Z")
+        assert service.needs_review_estimate(_make_pr(), review) is False
+
+    def test_up_to_date_when_untouched_since_review(self, service):
+        review = Review(
+            summary="s", findings=[], head_sha="abc123", created_at="2026-01-02T00:00:00Z",
+        )
+        pr = _make_pr(updated_at="2026-01-01T00:00:00Z")  # older than the review
+        assert service.needs_review_estimate(pr, review) is False
+
+    def test_updated_after_review_needs_review(self, service):
+        review = Review(
+            summary="s", findings=[], head_sha="abc123", created_at="2026-01-01T00:00:00Z",
+        )
+        pr = _make_pr(updated_at="2026-01-03T00:00:00Z")  # newer than the review
+        assert service.needs_review_estimate(pr, review) is True
+
+    def test_unparseable_timestamps_conservatively_need_review(self, service):
+        review = Review(summary="s", findings=[], head_sha="abc123", created_at="not-a-date")
+        assert service.needs_review_estimate(_make_pr(updated_at="also-bad"), review) is True

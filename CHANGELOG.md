@@ -8,6 +8,20 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **"review-auto" container mode — auto-start the Live Review watcher at boot.**
+  A new `--mode normal|review-auto` flag on `docker-launch.sh` and `launch.sh`
+  (backed by the `LIVE_REVIEW_AUTOSTART` env var and a FastAPI lifespan hook)
+  starts the background PR watcher automatically when the container comes up, so
+  new/updated non-draft PRs are reviewed the moment you open the dashboard — no
+  manual *Start*. An *Auto-review mode* checkbox in Settings persists the same
+  preference and flips the watcher live.
+- **Auto-refreshing open-PR list.** The "Open Pull Requests" list now refreshes
+  on its own every `PR_LIST_REFRESH_INTERVAL` seconds (default 15 min, bounds
+  30–86400, configurable in Settings) on top of the manual *↻ Refresh* button.
+- **Sidebar "needs-review" badge.** Each repo in the sidebar shows a count badge
+  for its open non-draft PRs that have no review yet or new commits since their
+  last review, backed by a new `GET /api/review/pending` endpoint. It refreshes
+  on the same cadence as the PR list and promptly after the watcher runs.
 - **Docker support, now the default way to run the tool.** A `Dockerfile`
   (multi-stage: frontend build → AI CLI install → Python runtime) and
   `docker-compose.yml` package the backend, the built frontend, `git`,

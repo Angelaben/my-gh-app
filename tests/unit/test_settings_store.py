@@ -70,6 +70,43 @@ class TestReviewSettings:
         ss.save_review_settings({"review_diff_max_chars": 4000})
         assert ss.get_review_settings()["review_diff_max_chars"] == 4000
 
+    def test_pr_list_refresh_interval_default(self, monkeypatch):
+        monkeypatch.delenv("PR_LIST_REFRESH_INTERVAL", raising=False)
+        s = ss.get_review_settings()
+        assert s["pr_list_refresh_interval"] == ss.DEFAULT_PR_LIST_REFRESH_INTERVAL
+        assert ss.default_review_settings()["pr_list_refresh_interval"] == (
+            ss.DEFAULT_PR_LIST_REFRESH_INTERVAL
+        )
+
+    def test_pr_list_refresh_interval_env_and_save_bounds(self, monkeypatch):
+        monkeypatch.setenv("PR_LIST_REFRESH_INTERVAL", "120")
+        assert ss.get_review_settings()["pr_list_refresh_interval"] == 120
+        ss.save_review_settings({"pr_list_refresh_interval": 60})
+        assert ss.get_review_settings()["pr_list_refresh_interval"] == 60  # stored > env
+        with pytest.raises(ValueError):
+            ss.save_review_settings({"pr_list_refresh_interval": 10})  # below 30
+        with pytest.raises(ValueError):
+            ss.save_review_settings({"pr_list_refresh_interval": 100_000})  # above 86400
+
+    def test_live_review_autostart_default_off(self, monkeypatch):
+        monkeypatch.delenv("LIVE_REVIEW_AUTOSTART", raising=False)
+        assert ss.get_review_settings()["live_review_autostart"] is False
+        assert ss.default_review_settings()["live_review_autostart"] is False
+
+    def test_live_review_autostart_env_truthy(self, monkeypatch):
+        monkeypatch.setenv("LIVE_REVIEW_AUTOSTART", "1")
+        assert ss.get_review_settings()["live_review_autostart"] is True
+        for raw in ("0", "false", "No", "OFF"):
+            monkeypatch.setenv("LIVE_REVIEW_AUTOSTART", raw)
+            assert ss.get_review_settings()["live_review_autostart"] is False
+
+    def test_live_review_autostart_save_round_trip(self, monkeypatch):
+        monkeypatch.delenv("LIVE_REVIEW_AUTOSTART", raising=False)
+        ss.save_review_settings({"live_review_autostart": True})
+        assert ss.get_review_settings()["live_review_autostart"] is True
+        ss.save_review_settings({"live_review_autostart": "off"})
+        assert ss.get_review_settings()["live_review_autostart"] is False
+
 
 class TestPrompts:
     def test_defaults_are_not_custom(self):

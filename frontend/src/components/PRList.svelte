@@ -29,6 +29,19 @@
     }
   });
 
+  // Auto-refresh the open-PR list on the configured cadence (default 15 min).
+  // Silent — no `loading` flip — so the list doesn't flash on each cycle.
+  $effect(() => {
+    const seconds = $reviewSettings?.pr_list_refresh_interval;
+    if (!seconds || seconds <= 0) return;
+    const id = setInterval(() => {
+      loadPRs(repo.owner, repo.name, true).catch(() => {
+        /* transient — the next cycle (or manual refresh) retries */
+      });
+    }, seconds * 1000);
+    return () => clearInterval(id);
+  });
+
   function toggleSelectMode() {
     selectionMode.update((v) => !v);
     clearSelection();

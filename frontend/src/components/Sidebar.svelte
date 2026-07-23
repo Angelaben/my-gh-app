@@ -2,6 +2,7 @@
   import { repos, activeRepo, repoSearchResults, addRepo, removeRepo, searchRepos } from '../stores/repos';
   import { activePR } from '../stores/prs';
   import { showToast } from '../stores/ui';
+  import { pendingByRepo } from '../stores/reviewStatus';
   import type { Repo } from '../lib/types';
 
   let searchQuery = $state('');
@@ -93,6 +94,12 @@
         onkeydown={(e) => e.key === 'Enter' && handleSelect(repo)}
       >
         <span class="repo-name" title={repo.full_name}>{repo.full_name}</span>
+        {#if ($pendingByRepo[repo.full_name] ?? 0) > 0}
+          <span
+            class="review-badge"
+            title="{$pendingByRepo[repo.full_name]} PR(s) to review"
+          >{$pendingByRepo[repo.full_name]}</span>
+        {/if}
         <button class="remove-btn" onclick={(e) => handleRemove(e, repo.full_name)} aria-label="Remove">×</button>
       </div>
     {/each}
@@ -173,6 +180,20 @@
   .repo-item:hover { background: var(--glass-bg); border-color: var(--glass-border); color: var(--text-primary); }
   .repo-item.active { background: var(--repo-active-bg); border-color: var(--repo-active-border); color: var(--accent); }
   .repo-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .review-badge {
+    flex-shrink: 0;
+    min-width: 16px;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 8px;
+    padding: 2px 5px;
+    margin-left: 6px;
+  }
   .remove-btn {
     background: none; border: none; color: var(--text-muted);
     font-size: 14px; cursor: pointer; padding: 0 2px; line-height: 1;

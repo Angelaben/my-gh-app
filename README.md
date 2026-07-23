@@ -193,6 +193,22 @@ Both providers implement the same `AIProvider` port (see `app/ports/ai_provider.
 6. **Batch-publish a Request Changes review** — once you've staged findings, click *⚠ Publish reviews* at the bottom of the list to ship them all in one GitHub review object.
 7. **Auto-implement fixes** — on the *Comments* tab, click *⚡ Generate Fix* on any reviewer comment. The AI works in an isolated git worktree; you then either *↑ Push to PR branch* or *+ New PR*.
 8. **Live review (optional)** — open the *Live* tab and press *▶ Start live review*. While running, the tool polls every registered repo (default every 5 minutes, configurable in Settings) and automatically reviews any open non-draft PR that has no review yet or received new commits since its last review. Triggered reviews land in each PR's *Review* tab as usual, and the tab's activity feed shows every poll and trigger. Pressing *■ Stop* only stops the polling — reviews already in flight run to completion. When stopped, the tool does not poll GitHub at all.
+9. **Auto-review from boot ("review-auto" mode)** — instead of pressing *Start* every time, launch the container in review-auto mode so the watcher is already running the moment you open the dashboard: `./docker-launch.sh --mode review-auto` (or `./launch.sh --mode review-auto` natively, or set `LIVE_REVIEW_AUTOSTART=1`). You can also toggle *Auto-review mode* in **Settings** at runtime — it persists the preference *and* starts/stops the watcher immediately. See [Container modes](#container-modes).
+
+The open-PR list **auto-refreshes** on its own (default every 15 minutes, configurable via `PR_LIST_REFRESH_INTERVAL` / Settings) in addition to the *↻ Refresh* button, and each repo in the sidebar shows a small **count badge** when it has open non-draft PRs that need a (re)review.
+
+---
+
+## Container modes
+
+The tool runs in one of two modes, chosen at launch:
+
+| Mode | How to launch | Behaviour |
+|------|---------------|-----------|
+| `normal` *(default)* | `./docker-launch.sh` | The Live Review watcher stays off until you start it from the *Live* tab. |
+| `review-auto` | `./docker-launch.sh --mode review-auto` | The watcher **auto-starts at boot**, so new/updated non-draft PRs are reviewed automatically the moment you connect — no manual *Start*. |
+
+Both launchers (`docker-launch.sh` and the native `launch.sh`) accept `--mode normal|review-auto`. Under the hood the flag sets `LIVE_REVIEW_AUTOSTART`, which you can also set directly (e.g. in `docker-compose.yml` / your env). The *Auto-review mode* checkbox in Settings persists the same preference for the next boot and flips the watcher live.
 
 ---
 
@@ -209,6 +225,8 @@ Optional environment variables:
 | `REVIEW_MAX_CONCURRENCY`  | `3`         | Maximum number of parallel sub-reviews launched when a diff is split. Each spawns one provider subprocess. |
 | `REVIEW_SYNTHESIS`        | `true`      | After a split review, run one extra AI pass that consolidates the per-chunk findings (semantic dedupe, consistent priorities, one coherent summary). Set `0`/`false` to keep the mechanical merge only. |
 | `LIVE_REVIEW_POLL_INTERVAL` | `300`     | Seconds between two Live Review poll cycles (the opt-in background watcher started from the *Live* tab). Each cycle runs one `gh pr list` per registered repo. Also configurable from Settings. |
+| `LIVE_REVIEW_AUTOSTART`   | `false`     | Start the Live Review watcher automatically at boot ("review-auto" [container mode](#container-modes)). Set by `--mode review-auto` on the launch scripts; also toggleable from Settings. |
+| `PR_LIST_REFRESH_INTERVAL` | `900`      | Seconds between automatic refreshes of the open-PR list in the UI (default 15 min). Bounds 30–86400. Also configurable from Settings. |
 
 Data is stored in:
 
@@ -349,7 +367,7 @@ Anything your AI CLI supports. `opencode` exposes its registered model list via 
 Not out of the box. The default `VCSPort` adapter shells out to the GitHub CLI. Implementing a GitLab or Gitea adapter is a few hundred lines — see `app/ports/vcs_port.py` for the surface area.
 
 **Does it auto-review every PR like a webhook bot?**
-Not by default. Reviews run on demand, when *you* click *Run Review*. If you want continuous coverage, the opt-in **Live Review** tab polls your registered repos (default every 5 minutes) while you keep it started and auto-reviews new or updated non-draft PRs — no webhook, no inbound network exposure, and nothing polls GitHub once you press Stop.
+Not by default. Reviews run on demand, when *you* click *Run Review*. If you want continuous coverage, the opt-in **Live Review** tab polls your registered repos (default every 5 minutes) while you keep it started and auto-reviews new or updated non-draft PRs — no webhook, no inbound network exposure, and nothing polls GitHub once you press Stop. To make it automatic from the moment the container boots (no manual *Start*), launch in [review-auto mode](#container-modes) (`--mode review-auto` / `LIVE_REVIEW_AUTOSTART=1`).
 
 **Why do P1 findings publish as a *Request Changes* review instead of a plain comment?**
 A P1 (Major) issue is something a human reviewer would block the PR on. Promoting it to a `REQUEST_CHANGES` review surfaces the *Changes requested* banner on the PR so the author can't merge until the issue is addressed. P0/P2/P3 findings publish as regular inline comments.

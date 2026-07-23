@@ -41,6 +41,10 @@ DEFAULT_MAX_CONCURRENCY = 3
 # Seconds between two Live Review poll cycles (gh pr list per watched repo).
 DEFAULT_LIVE_REVIEW_POLL_INTERVAL = 300
 
+# Seconds between two auto-refreshes of the open-PR list in the UI (default
+# 15 min). The frontend re-fetches the active repo's PRs on this cadence.
+DEFAULT_PR_LIST_REFRESH_INTERVAL = 900
+
 # key -> (env var, default, min, max)
 _INT_SETTINGS: dict[str, tuple[str, int, int, int]] = {
     "review_timeout": ("REVIEW_TIMEOUT", DEFAULT_REVIEW_TIMEOUT, 30, 3600),
@@ -49,6 +53,9 @@ _INT_SETTINGS: dict[str, tuple[str, int, int, int]] = {
     "live_review_poll_interval": (
         "LIVE_REVIEW_POLL_INTERVAL", DEFAULT_LIVE_REVIEW_POLL_INTERVAL, 60, 86_400,
     ),
+    "pr_list_refresh_interval": (
+        "PR_LIST_REFRESH_INTERVAL", DEFAULT_PR_LIST_REFRESH_INTERVAL, 30, 86_400,
+    ),
 }
 
 # key -> (env var, default). Env parses "0"/"false"/"no"/"off" as False.
@@ -56,6 +63,9 @@ _BOOL_SETTINGS: dict[str, tuple[str, bool]] = {
     # Second AI pass after a split review: consolidates per-chunk findings
     # (semantic dedupe + one coherent summary). Costs one extra provider call.
     "review_synthesis": ("REVIEW_SYNTHESIS", True),
+    # "review-auto" container mode: start the Live Review watcher at boot so
+    # auto-review is running the moment the UI is opened (no manual Start).
+    "live_review_autostart": ("LIVE_REVIEW_AUTOSTART", False),
 }
 
 DEFAULT_PROMPTS: dict[str, str] = {

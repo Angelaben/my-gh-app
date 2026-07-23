@@ -12,6 +12,8 @@
   import ActivityPage from './components/ActivityPage.svelte';
   import LiveReviewPage from './components/LiveReviewPage.svelte';
   import { initLiveReview } from './stores/liveReview';
+  import { loadSettings } from './stores/settings';
+  import { initReviewStatus } from './stores/reviewStatus';
   import ProviderModal from './components/ProviderModal.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
   import ReviewQueue from './components/ReviewQueue.svelte';
@@ -70,7 +72,14 @@
 
   // Live review feed connects at app level so auto-review toasts and the
   // topbar "Live" indicator work regardless of the active view.
-  onMount(() => { loadRepos(); void initLiveReview(); });
+  // Load settings up front so interval-driven features (open-PR auto-refresh,
+  // needs-review badge) work without first opening the Settings modal.
+  onMount(() => {
+    loadRepos();
+    void loadSettings().catch(() => {});
+    void initLiveReview();
+    initReviewStatus();
+  });
 
   $effect(() => {
     // Clear stale comment data whenever the active PR changes. Review state
