@@ -142,10 +142,12 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
     cli_name: ClassVar[str]
     #: Executable name (the thing that must be on ``PATH``).
     cli_executable: ClassVar[str]
-    #: Whether a non-zero exit must raise :class:`ProviderError`. Claude Code
-    #: is strict — silently parsing a 422-response stderr would surface a
-    #: hollow "0 findings" review. Opencode is lenient because some non-zero
-    #: exits still ship usable output.
+    #: Whether a non-zero exit with *some* stdout must raise
+    #: :class:`ProviderError`. Claude Code is strict — silently parsing a
+    #: 422-response stderr would surface a hollow "0 findings" review.
+    #: Opencode is lenient because some non-zero exits still ship usable
+    #: output. Either way, a non-zero exit with *zero* stdout always raises
+    #: (see ``stream_cli``) — there's nothing to salvage from a hard crash.
     raise_on_nonzero_exit: ClassVar[bool] = False
 
     review_prompt: ClassVar[str] = REVIEW_PROMPT
@@ -484,7 +486,13 @@ class BaseCLIAIAdapter(AIProvider, abc.ABC):
                 f"{self.cli_executable} timed out after {timeout}s"
             )
 
-        if is_failure and self.raise_on_nonzero_exit and not timed_out:
+        # Leniency (raise_on_nonzero_exit=False) exists for CLIs that still
+        # ship usable stdout on a non-zero exit. It must not apply when there
+        # is zero output to salvage — that's a hard failure (e.g. the CLI
+        # crashed on startup), and silently downgrading it to a "0 findings"
+        # review hides the real error from the caller.
+        must_raise = self.raise_on_nonzero_exit or output_lines == 0
+        if is_failure and must_raise and not timed_out:
             first_stdout_line = next(
                 (line for line in captured_stdout.splitlines() if line.strip()), ""
             )
