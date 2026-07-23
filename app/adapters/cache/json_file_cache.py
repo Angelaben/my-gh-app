@@ -132,6 +132,19 @@ class JsonFileCache(CachePort):
         if path.exists():
             path.unlink()
 
+    def list_reviewed_prs(self, repo_full_name: str) -> list[int]:
+        if not self._reviews_dir.exists():
+            return []
+        prefix = f"{_slug(repo_full_name)}_"
+        numbers: list[int] = []
+        for path in self._reviews_dir.glob(f"{prefix}*.json"):
+            try:
+                numbers.append(int(path.stem[len(prefix):]))
+            except ValueError:
+                # Ignore files whose suffix isn't a PR number.
+                continue
+        return sorted(numbers)
+
     # --- Last Visited & GitHub Login ---
 
     def get_last_visited(self, repo_full_name: str, pr_number: int) -> datetime | None:

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { prs, activePR, loadPRs } from '../stores/prs';
   import { showToast } from '../stores/ui';
   import {
@@ -9,6 +10,7 @@
     clearSelection,
   } from '../stores/reviewQueue';
   import { reviewSettings } from '../stores/settings';
+  import { hydrateRepoReviews } from '../stores/reviewSessions';
   import type { Repo, PR } from '../lib/types';
   import PRItem from './PRItem.svelte';
 
@@ -21,6 +23,9 @@
     clearSelection();
     try {
       await loadPRs(repo.owner, repo.name, true);
+      // Restore "reviewed" badges from the server cache so completed reviews
+      // survive a page reload (best-effort; never blocks the list).
+      hydrateRepoReviews(repo, get(prs)).catch(() => {});
     } catch {
       error = 'Failed to load PRs';
       showToast('Failed to load PRs', 'error');

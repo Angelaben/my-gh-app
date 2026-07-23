@@ -15,6 +15,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     const text = await res.text().catch(() => res.statusText);
     throw new ApiError(res.status, text);
   }
+  // 204 No Content (and other empty bodies) have no JSON to parse.
+  if (res.status === 204) return null as T;
   return res.json() as Promise<T>;
 }
 

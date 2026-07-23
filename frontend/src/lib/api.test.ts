@@ -16,6 +16,14 @@ describe('api.get', () => {
     expect(fetch).toHaveBeenCalledWith('/api/repos', expect.objectContaining({ method: 'GET' }));
   });
 
+  it('returns null on 204 without parsing a body', async () => {
+    const json = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, json }));
+    const result = await api.get('/review/acme/widgets/7');
+    expect(result).toBeNull();
+    expect(json).not.toHaveBeenCalled();
+  });
+
   it('throws ApiError on non-ok response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,

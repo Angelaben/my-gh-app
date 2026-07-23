@@ -110,3 +110,29 @@ class TestReview:
         assert loaded is not None
         assert loaded.findings[0].line == 42
         assert isinstance(loaded.findings[0].line, int)
+
+
+class TestListReviewedPRs:
+    def test_empty_when_no_reviews(self, cache: JsonFileCache):
+        assert cache.list_reviewed_prs("acme/backend") == []
+
+    def test_lists_cached_pr_numbers_sorted(self, cache: JsonFileCache):
+        cache.save_review("acme/backend", 7, Review(summary="a", findings=[]))
+        cache.save_review("acme/backend", 3, Review(summary="b", findings=[]))
+        assert cache.list_reviewed_prs("acme/backend") == [3, 7]
+
+    def test_scoped_to_repo(self, cache: JsonFileCache):
+        cache.save_review("acme/backend", 1, Review(summary="a", findings=[]))
+        cache.save_review("acme/frontend", 2, Review(summary="b", findings=[]))
+        assert cache.list_reviewed_prs("acme/backend") == [1]
+        assert cache.list_reviewed_prs("acme/frontend") == [2]
+
+    def test_excludes_cleared_reviews(self, cache: JsonFileCache):
+        cache.save_review("acme/backend", 1, Review(summary="a", findings=[]))
+        cache.save_review("acme/backend", 2, Review(summary="b", findings=[]))
+        cache.clear_review("acme/backend", 1)
+        assert cache.list_reviewed_prs("acme/backend") == [2]
+
+    def test_handles_repo_name_with_underscore(self, cache: JsonFileCache):
+        cache.save_review("acme/my_repo", 5, Review(summary="a", findings=[]))
+        assert cache.list_reviewed_prs("acme/my_repo") == [5]

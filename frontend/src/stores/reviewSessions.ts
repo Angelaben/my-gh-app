@@ -192,6 +192,55 @@ function blankSession(key: string, repo: Repo, pr: PR): ReviewSession {
   };
 }
 
+function isRunning(status: SessionStatus): boolean {
+  return status === 'connecting' || status === 'streaming';
+}
+
+/**
+ * Restore a single PR's completed review from the server-side cache. Reviews
+ * are persisted on disk by the backend, but the session store is in-memory, so
+ * a page reload drops the UI state. Called when a PR is opened; a running
+ * review for the same PR is never clobbered, and a 204 (no cached review)
+ * leaves the store untouched.
+ */
+export async function hydrateReview(repo: Repo, pr: PR): Promise<void> {
+  const key = prKey(repo.owner, repo.name, pr.number);
+  const existing = get(reviewSessions).get(key);
+  if (existing && isRunning(existing.status)) return;
+  const review = await api.get<Review | null>(`/review/${repo.owner}/${repo.name}/${pr.number}`);
+  if (!review) return; // 204 → api returns null
+  reviewSessions.update((m) => {
+    const current = m.get(key);
+    if (current && isRunning(current.status)) return m; // race: review started while fetching
+    return new Map(m).set(key, { ...blankSession(key, repo, pr), review, endTime: Date.now() });
+  });
+}
+
+/**
+ * Restore every cached review for a repo in one call, so the sidebar's
+ * "reviewed" badges survive a reload. Only fills in PRs that have no session
+ * yet — existing (running or already-hydrated) sessions are left as-is.
+ */
+export async function hydrateRepoReviews(repo: Repo, prs: PR[]): Promise<void> {
+  const byNumber = new Map(prs.map((p) => [p.number, p]));
+  const res = await api.get<{ reviews: (Review & { pr_number: number })[] }>(
+    `/reviews/${repo.owner}/${repo.name}`,
+  );
+  reviewSessions.update((m) => {
+    let next: Map<string, ReviewSession> | null = null;
+    for (const entry of res.reviews) {
+      const pr = byNumber.get(entry.pr_number);
+      if (!pr) continue; // review cached for a PR not in the current (open) list
+      const key = prKey(repo.owner, repo.name, pr.number);
+      if (m.has(key)) continue; // never overwrite an existing session
+      const { pr_number: _pr, ...review } = entry;
+      next ??= new Map(m);
+      next.set(key, { ...blankSession(key, repo, pr), review, endTime: Date.now() });
+    }
+    return next ?? m;
+  });
+}
+
 /**
  * Re-review only the files changed since the cached review's head SHA, then
  * fold the result into the PR's session. This is a plain POST (not an SSE

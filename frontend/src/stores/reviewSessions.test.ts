@@ -21,12 +21,19 @@ class MockEventSource {
 }
 vi.stubGlobal('EventSource', MockEventSource);
 
+vi.mock('../lib/api', () => ({
+  api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+}));
+import { api } from '../lib/api';
+
 import {
   reviewSessions,
   runningReviewCount,
   startReview,
   stopReview,
   prKey,
+  hydrateReview,
+  hydrateRepoReviews,
 } from './reviewSessions';
 
 const repo: Repo = { owner: 'acme', name: 'widgets', full_name: 'acme/widgets' };
@@ -53,6 +60,7 @@ function lastSource(): MockEventSource {
 beforeEach(() => {
   reviewSessions.set(new Map());
   MockEventSource.instances = [];
+  vi.mocked(api.get).mockReset();
 });
 
 describe('reviewSessions', () => {
@@ -146,5 +154,72 @@ describe('reviewSessions', () => {
     source.emit({ type: 'done' });
     stopReview(prKey('acme', 'widgets', 7));
     expect(get(reviewSessions).has(prKey('acme', 'widgets', 7))).toBe(true);
+  });
+});
+
+describe('hydrateReview', () => {
+  it('creates a done session from a cached review', async () => {
+    const review = { summary: 'ok', findings: [{ priority: 'P1', title: 'bug', description: 'd' }] };
+    vi.mocked(api.get).mockResolvedValue(review);
+    await hydrateReview(repo, makePR(7));
+    const session = get(reviewSessions).get(prKey('acme', 'widgets', 7))!;
+    expect(session.status).toBe('done');
+    expect(session.review).toMatchObject(review);
+    expect(api.get).toHaveBeenCalledWith('/review/acme/widgets/7');
+  });
+
+  it('is a no-op on 204 (null response)', async () => {
+    vi.mocked(api.get).mockResolvedValue(null);
+    await hydrateReview(repo, makePR(7));
+    expect(get(reviewSessions).has(prKey('acme', 'widgets', 7))).toBe(false);
+  });
+
+  it('never clobbers a running session', async () => {
+    startReview(repo, makePR(7));
+    lastSource().emit({ type: 'chunk', text: 'partial' });
+    vi.mocked(api.get).mockResolvedValue({ summary: 'cached', findings: [] });
+    await hydrateReview(repo, makePR(7));
+    const session = get(reviewSessions).get(prKey('acme', 'widgets', 7))!;
+    expect(session.status).toBe('streaming');
+    expect(session.chunkLog).toBe('partial');
+    // A running review shortcuts before hitting the network.
+    expect(api.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('hydrateRepoReviews', () => {
+  it('inserts done sessions for cached PRs present in the list', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      reviews: [
+        { pr_number: 1, summary: 'one', findings: [] },
+        { pr_number: 2, summary: 'two', findings: [{ priority: 'P2', title: 't', description: 'd' }] },
+      ],
+    });
+    await hydrateRepoReviews(repo, [makePR(1), makePR(2)]);
+    const map = get(reviewSessions);
+    expect(map.get(prKey('acme', 'widgets', 1))!.status).toBe('done');
+    expect(map.get(prKey('acme', 'widgets', 2))!.review!.findings).toHaveLength(1);
+    // The pr_number marker must not leak into the stored review.
+    expect('pr_number' in (map.get(prKey('acme', 'widgets', 1))!.review as object)).toBe(false);
+  });
+
+  it('skips cached reviews for PRs not in the current list', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      reviews: [{ pr_number: 99, summary: 'gone', findings: [] }],
+    });
+    await hydrateRepoReviews(repo, [makePR(1)]);
+    expect(get(reviewSessions).has(prKey('acme', 'widgets', 99))).toBe(false);
+  });
+
+  it('never overwrites an existing session', async () => {
+    startReview(repo, makePR(1));
+    lastSource().emit({ type: 'chunk', text: 'live' });
+    vi.mocked(api.get).mockResolvedValue({
+      reviews: [{ pr_number: 1, summary: 'cached', findings: [] }],
+    });
+    await hydrateRepoReviews(repo, [makePR(1)]);
+    const session = get(reviewSessions).get(prKey('acme', 'widgets', 1))!;
+    expect(session.status).toBe('streaming');
+    expect(session.chunkLog).toBe('live');
   });
 });

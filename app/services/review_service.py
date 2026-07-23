@@ -68,6 +68,23 @@ class ReviewService:
         """Always run a fresh review, overwriting any cache."""
         return await self._run_review(repo_full_name, pr_number)
 
+    def get_cached_review(self, repo_full_name: str, pr_number: int) -> Review | None:
+        """Return the persisted review for a PR, or None. Never runs a review."""
+        return self._cache.get_review(repo_full_name, pr_number)
+
+    def list_cached_reviews(self, repo_full_name: str) -> dict[int, Review]:
+        """Return all persisted reviews for a repo, keyed by PR number.
+
+        Read-only: never triggers a review. Skips any PR whose cache file
+        vanished between listing and reading.
+        """
+        reviews: dict[int, Review] = {}
+        for pr_number in self._cache.list_reviewed_prs(repo_full_name):
+            review = self._cache.get_review(repo_full_name, pr_number)
+            if review is not None:
+                reviews[pr_number] = review
+        return reviews
+
     async def stream_review(
         self,
         repo_full_name: str,

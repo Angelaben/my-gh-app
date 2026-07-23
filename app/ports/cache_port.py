@@ -49,6 +49,11 @@ class CachePort(ABC):
         ...
 
     @abstractmethod
+    def list_reviewed_prs(self, repo_full_name: str) -> list[int]:
+        """Return the PR numbers that have a cached review for this repo."""
+        ...
+
+    @abstractmethod
     def get_last_visited(self, repo_full_name: str, pr_number: int) -> datetime | None:
         """Return the datetime the PR was last loaded, or None if never visited."""
         ...
