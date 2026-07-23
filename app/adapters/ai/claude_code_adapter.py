@@ -18,16 +18,23 @@ the Claude-Code-specific behaviours that historically blocked everyday use:
 3. **Strict failure handling.** Unlike opencode, a non-zero exit means the
    review failed — we raise so the SSE pipeline emits a top-level error
    event instead of presenting a hollow "0 findings" review to the user.
-4. **Read-only flow uses ``--bare``.** Without it, headless subprocess
-   invocations fail the keychain-read step and fall back to a strict
-   model-validation path that rejects perfectly valid Bedrock IDs.
+4. **Read-only flow auto-discovers Skills by default.** Earlier versions
+   forced ``--bare`` on read-only runs to dodge a keychain-read step that
+   could fall back to a strict model-validation path. But ``--bare`` *also*
+   skips auto-discovery of Skills, hooks, plugins, MCP servers and CLAUDE.md
+   — which defeats the point of the bundled ``claude_skills/`` (see
+   :mod:`app.adapters.ai._skills`). So read-only runs now omit ``--bare`` so
+   the connector picks up the project's Skills. Set ``CLAUDE_CODE_BARE=1`` to
+   restore the old behaviour on deployments (e.g. some AWS Bedrock setups)
+   where the strict model-validation path rejects valid model IDs.
 5. **Fix flow uses ``--dangerously-skip-permissions``** but keeps the rest
-   of the project context (CLAUDE.md, hooks, plugins) intact.
+   of the project context (CLAUDE.md, hooks, plugins, Skills) intact.
 """
 from __future__ import annotations
 
 import asyncio  # noqa: F401 — exposed as `claude_code_adapter.asyncio` for tests that monkeypatch `create_subprocess_exec` on this module's namespace.
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator
 
@@ -48,6 +55,16 @@ logger = logging.getLogger(__name__)
 # output. Captures the raw model identifier (alphanumerics, underscores,
 # colons, dots, dashes, slashes) so the UI can offer a one-click switch.
 _SUGGESTION_RE = re.compile(r"--model to switch to ([\w.:/-]+)")
+
+
+def _bare_mode_enabled() -> bool:
+    """True when ``CLAUDE_CODE_BARE`` opts read-only runs back into ``--bare``.
+
+    ``--bare`` skips Skill / hook / plugin / MCP / CLAUDE.md auto-discovery, so
+    it's off by default (the connector wants the bundled Skills). Deployments
+    that need the legacy fast / keychain-bypassing path can re-enable it.
+    """
+    return os.getenv("CLAUDE_CODE_BARE", "").strip().lower() in {"1", "true", "yes"}
 
 
 def list_models() -> list[str]:
@@ -155,16 +172,18 @@ class ClaudeCodeAdapter(BaseCLIAIAdapter):
         if model:
             argv += ["--model", model]
         if mode == "fix":
-            # Fix flow needs CLAUDE.md auto-discovery, hooks and plugins for
-            # project context. Bypass the per-tool prompts so the run isn't
-            # blocked waiting for stdin confirmation.
+            # Fix flow needs CLAUDE.md auto-discovery, hooks, plugins and
+            # Skills for project context. Bypass the per-tool prompts so the
+            # run isn't blocked waiting for stdin confirmation.
             argv.append("--dangerously-skip-permissions")
-        else:
-            # Read-only flows: --bare bypasses the keychain-read step that
-            # fails inside subprocess invocations. Without it, the CLI falls
-            # back to a strict model-validation path that rejects valid
-            # Bedrock IDs.
+        elif _bare_mode_enabled():
+            # Opt-in legacy path: --bare bypasses the keychain-read step that
+            # could fall back to a strict model-validation path rejecting valid
+            # Bedrock IDs. It also skips Skill discovery, so it's off by
+            # default and gated behind CLAUDE_CODE_BARE.
             argv.append("--bare")
+        # else: read-only runs omit --bare so the connector auto-discovers the
+        # bundled Skills (and CLAUDE.md / hooks) like the fix flow does.
         # Always positional. Linux ARG_MAX is ~2 MB so even large reviews fit;
         # `-p` mode does not reliably consume stdin across CLI versions.
         argv.append(prompt)

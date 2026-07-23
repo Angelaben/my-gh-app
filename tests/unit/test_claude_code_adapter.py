@@ -235,10 +235,10 @@ async def test_stream_claude_code_passes_unprefixed_model_through(monkeypatch):
     assert args[args.index("--model") + 1] == "claude-opus-4-7"
 
 
-async def test_stream_claude_code_uses_bare_for_read_only_flows(monkeypatch):
-    """Review / analyze / generate-text invocations must include --bare so
-    Claude Code skips the keychain-read step that fails in headless subprocess
-    invocations."""
+async def test_stream_claude_code_omits_bare_for_read_only_flows_by_default(monkeypatch):
+    """Read-only flows must NOT pass --bare by default: --bare suppresses Skill
+    discovery, and the connector wants the bundled claude_skills/ to load."""
+    monkeypatch.delenv("CLAUDE_CODE_BARE", raising=False)
     captured: dict = {}
     proc = _FakeProc([b'{"summary":"ok","findings":[]}\n'], [], 0)
     _patch_subprocess(monkeypatch, proc, captured)
@@ -247,7 +247,23 @@ async def test_stream_claude_code_uses_bare_for_read_only_flows(monkeypatch):
         pass
 
     args = captured["args"]
-    assert "--bare" in args, f"--bare must be passed for read-only flows, got {args!r}"
+    assert "--bare" not in args, f"--bare must be absent by default, got {args!r}"
+    assert "--dangerously-skip-permissions" not in args
+
+
+async def test_stream_claude_code_bare_env_flag_restores_bare(monkeypatch):
+    """CLAUDE_CODE_BARE=1 opts read-only runs back into the legacy --bare path
+    (for deployments where the strict model-validation path is a problem)."""
+    monkeypatch.setenv("CLAUDE_CODE_BARE", "1")
+    captured: dict = {}
+    proc = _FakeProc([b'{"summary":"ok","findings":[]}\n'], [], 0)
+    _patch_subprocess(monkeypatch, proc, captured)
+
+    async for _ in _stream_claude_code("hi"):
+        pass
+
+    args = captured["args"]
+    assert "--bare" in args, f"CLAUDE_CODE_BARE=1 must restore --bare, got {args!r}"
     assert "--dangerously-skip-permissions" not in args
 
 
