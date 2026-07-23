@@ -38,11 +38,17 @@ DEFAULT_REVIEW_TIMEOUT = 300
 DEFAULT_DIFF_MAX_CHARS = 150_000
 DEFAULT_MAX_CONCURRENCY = 3
 
+# Seconds between two Live Review poll cycles (gh pr list per watched repo).
+DEFAULT_LIVE_REVIEW_POLL_INTERVAL = 300
+
 # key -> (env var, default, min, max)
 _INT_SETTINGS: dict[str, tuple[str, int, int, int]] = {
     "review_timeout": ("REVIEW_TIMEOUT", DEFAULT_REVIEW_TIMEOUT, 30, 3600),
     "review_diff_max_chars": ("REVIEW_DIFF_MAX_CHARS", DEFAULT_DIFF_MAX_CHARS, 1000, 2_000_000),
     "review_max_concurrency": ("REVIEW_MAX_CONCURRENCY", DEFAULT_MAX_CONCURRENCY, 1, 16),
+    "live_review_poll_interval": (
+        "LIVE_REVIEW_POLL_INTERVAL", DEFAULT_LIVE_REVIEW_POLL_INTERVAL, 60, 86_400,
+    ),
 }
 
 # key -> (env var, default). Env parses "0"/"false"/"no"/"off" as False.

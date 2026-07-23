@@ -15,6 +15,7 @@
   } from '../stores/ui';
   import { theme, THEMES } from '../stores/theme';
   import { openSettings } from '../stores/settings';
+  import { liveReviewStatus } from '../stores/liveReview';
 
   const PROVIDER_PICKED_KEY = 'gh_review_provider_picked';
 
@@ -167,6 +168,10 @@
     activeView.update((v) => (v === 'activity' ? 'workspace' : 'activity'));
   }
 
+  function toggleLiveReview(): void {
+    activeView.update((v) => (v === 'live-review' ? 'workspace' : 'live-review'));
+  }
+
   function openPicker(): void {
     providerPickerOpen.set(true);
   }
@@ -209,6 +214,16 @@
       {$runningReviewCount} review{$runningReviewCount === 1 ? '' : 's'} running
     </span>
   {/if}
+
+  <button
+    type="button"
+    class="activity-btn"
+    class:active={$activeView === 'live-review'}
+    onclick={toggleLiveReview}
+    title="Live review — auto-review new and updated PRs"
+  >
+    <span class="live-dot" class:on={$liveReviewStatus?.running}></span> Live
+  </button>
 
   <button
     type="button"
@@ -358,6 +373,11 @@
     transition: all var(--transition-fast);
   }
   .activity-btn:hover { color: var(--text-secondary); border-color: var(--glass-border-hover); }
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-muted); vertical-align: middle; margin-right: 2px;
+  }
+  .live-dot.on { background: var(--p3); box-shadow: 0 0 5px var(--p3); }
   .activity-btn.active {
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);

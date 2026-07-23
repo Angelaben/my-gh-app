@@ -83,7 +83,39 @@ export interface ReviewSettings {
   review_max_concurrency: number;
   review_synthesis: boolean;
   review_ignore_globs: string[];
+  live_review_poll_interval: number;
 }
+
+export interface LiveReviewStatus {
+  running: boolean;
+  poll_interval: number;
+  last_poll_at: string | null;
+  active_reviews: string[];
+  last_seq: number;
+}
+
+export type LiveReviewEventKind =
+  | 'started'
+  | 'stopped'
+  | 'poll'
+  | 'review_triggered'
+  | 'review_started'
+  | 'review_finished'
+  | 'review_failed'
+  | 'error';
+
+export interface LiveReviewEvent {
+  seq: number;
+  ts: string;
+  kind: LiveReviewEventKind;
+  message: string;
+  repo?: string;
+  pr?: number;
+}
+
+export type SSELiveReviewEvent =
+  | { type: 'event'; event: LiveReviewEvent }
+  | { type: 'status'; status: LiveReviewStatus };
 
 export type PromptName = 'review' | 'fix' | 'analyze' | 'synthesize';
 

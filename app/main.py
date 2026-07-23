@@ -40,6 +40,7 @@ from app.services import settings_store
 from app.services._diff_splitter import extract_hunk_rows, split_unified_diff
 from app.services.comment_service import CommentService
 from app.services.fix_service import FixService
+from app.services.live_review_service import LiveReviewService
 from app.services.review_service import ReviewService
 
 _LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
@@ -244,6 +245,7 @@ if _skill_install.installed or _skill_install.skipped_conflict:
 _review_service = ReviewService(ai=_ai, cache=_cache, vcs=_vcs)
 _fix_service = FixService(ai=_ai, vcs=_vcs, worktree=_worktree)
 _comment_service = CommentService(ai=_ai, vcs=_vcs)
+_live_review_service = LiveReviewService(review_service=_review_service, cache=_cache, vcs=_vcs)
 
 
 def get_review_service() -> ReviewService:
@@ -446,6 +448,7 @@ class SettingsUpdate(BaseModel):
     review_max_concurrency: int | None = None
     review_synthesis: bool | None = None
     review_ignore_globs: list[str] | None = None
+    live_review_poll_interval: int | None = None
 
 
 class PromptUpdate(BaseModel):
@@ -946,6 +949,82 @@ async def stream_logs():
                     idle_ticks = 0
                     yield ": keepalive\n\n"
             await asyncio.sleep(_LOGS_POLL_S)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- Live review (background PR watcher) ---
+
+_LIVE_REVIEW_POLL_S = 1.0
+
+
+# start/stop must run on the event loop (async def): the service creates and
+# cancels asyncio tasks, which is illegal from FastAPI's sync threadpool.
+
+@app.post("/api/live-review/start")
+async def start_live_review():
+    """Start the background PR watcher (idempotent)."""
+    return _live_review_service.start()
+
+
+@app.post("/api/live-review/stop")
+async def stop_live_review():
+    """Stop polling. In-flight auto-reviews keep running to completion."""
+    return _live_review_service.stop()
+
+
+@app.get("/api/live-review/status")
+def live_review_status():
+    return _live_review_service.status()
+
+
+@app.get("/api/live-review/events")
+def live_review_events(after_seq: int = 0, limit: int = 200):
+    """Recent watcher events from the in-memory ring buffer."""
+    return {
+        "events": _live_review_service.events_after(after_seq=after_seq, limit=limit),
+        "last_seq": _live_review_service.last_seq,
+        "status": _live_review_service.status(),
+    }
+
+
+@app.get("/api/live-review/stream")
+async def stream_live_review():
+    """SSE: push watcher events and status changes as they happen."""
+    async def event_stream():
+        last_seq = _live_review_service.last_seq
+        last_status = ""
+        idle_ticks = 0
+        while True:
+            emitted = False
+            events = _live_review_service.events_after(after_seq=last_seq, limit=200)
+            if events:
+                last_seq = events[-1]["seq"]
+                for event in events:
+                    yield f"data: {json.dumps({'type': 'event', 'event': event})}\n\n"
+                emitted = True
+            status = _live_review_service.status()
+            # last_seq moves with every event — ignore it or each event would
+            # drag a redundant status frame along.
+            status_token = json.dumps(
+                {k: v for k, v in status.items() if k != "last_seq"}, sort_keys=True,
+            )
+            if status_token != last_status:
+                last_status = status_token
+                yield f"data: {json.dumps({'type': 'status', 'status': status})}\n\n"
+                emitted = True
+            if emitted:
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+                if idle_ticks >= _SSE_KEEPALIVE_TICKS:
+                    idle_ticks = 0
+                    yield ": keepalive\n\n"
+            await asyncio.sleep(_LIVE_REVIEW_POLL_S)
 
     return StreamingResponse(
         event_stream(),

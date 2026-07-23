@@ -20,6 +20,7 @@
   let concurrency = $state(3);
   let synthesis = $state(true);
   let globs = $state('');
+  let livePollInterval = $state(300);
 
   $effect(() => {
     const s = $reviewSettings;
@@ -29,6 +30,7 @@
       concurrency = s.review_max_concurrency;
       synthesis = s.review_synthesis;
       globs = s.review_ignore_globs.join(', ');
+      livePollInterval = s.live_review_poll_interval;
     }
   });
 
@@ -75,6 +77,7 @@
         review_max_concurrency: concurrency,
         review_synthesis: synthesis,
         review_ignore_globs: splitGlobs(globs),
+        live_review_poll_interval: livePollInterval,
       });
       showToast('Settings saved', 'success');
     } catch (e) {
@@ -180,6 +183,11 @@
             <label for="set-synth">Synthesis pass</label>
             <input id="set-synth" type="checkbox" bind:checked={synthesis} />
             <span class="hint">consolidate split reviews with one extra AI call</span>
+          </div>
+          <div class="field">
+            <label for="set-livepoll">Live review poll (s)</label>
+            <input id="set-livepoll" class="num" type="number" min="60" max="86400" bind:value={livePollInterval} />
+            <span class="hint">60–86400 · applies on the next cycle</span>
           </div>
           <div class="field full">
             <label for="set-globs">Ignore globs</label>

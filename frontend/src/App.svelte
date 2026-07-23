@@ -10,6 +10,8 @@
   import PRList from './components/PRList.svelte';
   import PRDetail from './components/PRDetail.svelte';
   import ActivityPage from './components/ActivityPage.svelte';
+  import LiveReviewPage from './components/LiveReviewPage.svelte';
+  import { initLiveReview } from './stores/liveReview';
   import ProviderModal from './components/ProviderModal.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
   import ReviewQueue from './components/ReviewQueue.svelte';
@@ -66,7 +68,9 @@
     localStorage.setItem('sidebarWidth', String(sidebarWidth));
   }
 
-  onMount(() => { loadRepos(); });
+  // Live review feed connects at app level so auto-review toasts and the
+  // topbar "Live" indicator work regardless of the active view.
+  onMount(() => { loadRepos(); void initLiveReview(); });
 
   $effect(() => {
     // Clear stale comment data whenever the active PR changes. Review state
@@ -101,6 +105,8 @@
   <main class="main-content">
     {#if $activeView === 'activity'}
       <ActivityPage />
+    {:else if $activeView === 'live-review'}
+      <LiveReviewPage />
     {:else if !$activeRepo}
       <EmptyState />
     {:else if !$activePR}

@@ -192,6 +192,7 @@ Both providers implement the same `AIProvider` port (see `app/ports/ai_provider.
    - `+ Add to review` → stage the finding for a batched review.
 6. **Batch-publish a Request Changes review** — once you've staged findings, click *⚠ Publish reviews* at the bottom of the list to ship them all in one GitHub review object.
 7. **Auto-implement fixes** — on the *Comments* tab, click *⚡ Generate Fix* on any reviewer comment. The AI works in an isolated git worktree; you then either *↑ Push to PR branch* or *+ New PR*.
+8. **Live review (optional)** — open the *Live* tab and press *▶ Start live review*. While running, the tool polls every registered repo (default every 5 minutes, configurable in Settings) and automatically reviews any open non-draft PR that has no review yet or received new commits since its last review. Triggered reviews land in each PR's *Review* tab as usual, and the tab's activity feed shows every poll and trigger. Pressing *■ Stop* only stops the polling — reviews already in flight run to completion. When stopped, the tool does not poll GitHub at all.
 
 ---
 
@@ -207,6 +208,7 @@ Optional environment variables:
 | `REVIEW_DIFF_MAX_CHARS`   | `150000`    | Threshold above which the PR diff is split by file and reviewed in parallel sub-calls (each sub-call carries the full PR file manifest for cross-file context). Sized so most PRs fit a single coherent call; lower it for small-context models. |
 | `REVIEW_MAX_CONCURRENCY`  | `3`         | Maximum number of parallel sub-reviews launched when a diff is split. Each spawns one provider subprocess. |
 | `REVIEW_SYNTHESIS`        | `true`      | After a split review, run one extra AI pass that consolidates the per-chunk findings (semantic dedupe, consistent priorities, one coherent summary). Set `0`/`false` to keep the mechanical merge only. |
+| `LIVE_REVIEW_POLL_INTERVAL` | `300`     | Seconds between two Live Review poll cycles (the opt-in background watcher started from the *Live* tab). Each cycle runs one `gh pr list` per registered repo. Also configurable from Settings. |
 
 Data is stored in:
 
@@ -347,7 +349,7 @@ Anything your AI CLI supports. `opencode` exposes its registered model list via 
 Not out of the box. The default `VCSPort` adapter shells out to the GitHub CLI. Implementing a GitLab or Gitea adapter is a few hundred lines — see `app/ports/vcs_port.py` for the surface area.
 
 **Does it auto-review every PR like a webhook bot?**
-No, by design. Reviews run on demand, when *you* click *Run Review*. This is what keeps it private, predictable, and cheap.
+Not by default. Reviews run on demand, when *you* click *Run Review*. If you want continuous coverage, the opt-in **Live Review** tab polls your registered repos (default every 5 minutes) while you keep it started and auto-reviews new or updated non-draft PRs — no webhook, no inbound network exposure, and nothing polls GitHub once you press Stop.
 
 **Why do P1 findings publish as a *Request Changes* review instead of a plain comment?**
 A P1 (Major) issue is something a human reviewer would block the PR on. Promoting it to a `REQUEST_CHANGES` review surfaces the *Changes requested* banner on the PR so the author can't merge until the issue is addressed. P0/P2/P3 findings publish as regular inline comments.
