@@ -108,15 +108,15 @@ git clone git@github.com:Angelaben/my-gh-app.git
 # git clone https://github.com/Angelaben/my-gh-app.git
 cd my-gh-app
 
-./docker-launch.sh                          # default provider (opencode), port 8000
+./docker-launch.sh                          # default provider (opencode), port 4500, detached
 ./docker-launch.sh --provider claude-code   # use Claude Code
 ./docker-launch.sh --port 9000              # custom host port
-./docker-launch.sh -d                       # detached (background)
+./docker-launch.sh -a                       # attached (foreground) instead of detached
 ./docker-launch.sh --down                   # stop and remove the container
 ./docker-launch.sh --help                   # full usage
 ```
 
-`docker-launch.sh` is a thin wrapper around `docker compose`; `docker compose up --build` works identically if you'd rather call it directly. Open **<http://localhost:8000>**.
+`docker-launch.sh` is a thin wrapper around `docker compose`; `docker compose up --build -d` works identically if you'd rather call it directly. The container runs detached by default, with the chosen host port mapped through to the app's port 8000 inside the container (see the `ports:` entry in `docker-compose.yml`). Open **<http://localhost:4500>**.
 
 App data (cache, settings, metrics) and git worktrees persist in named Docker volumes (`gh-review-cache`, `gh-review-worktrees`) across restarts and rebuilds. See the comments in `docker-compose.yml` if your `opencode`/Claude Code config lives at a non-default path, or if you only use one of the two providers and want to drop the other's mount.
 

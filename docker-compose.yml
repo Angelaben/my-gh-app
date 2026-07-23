@@ -14,7 +14,7 @@ services:
     image: gh-review-tool:latest
     container_name: gh-review-tool
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-4500}:8000"
     environment:
       AI_PROVIDER: "${AI_PROVIDER:-opencode}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
