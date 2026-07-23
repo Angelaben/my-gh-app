@@ -195,7 +195,7 @@
           <div class="field">
             <label for="set-conc">Max concurrency</label>
             <input id="set-conc" class="num" type="number" min="1" max="16" bind:value={concurrency} />
-            <span class="hint">parallel chunk reviews</span>
+            <span class="hint">concurrent PR reviews</span>
           </div>
           <div class="field">
             <label for="set-synth">Synthesis pass</label>

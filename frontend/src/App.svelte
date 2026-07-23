@@ -72,12 +72,17 @@
 
   // Live review feed connects at app level so auto-review toasts and the
   // topbar "Live" indicator work regardless of the active view.
-  // Load settings up front so interval-driven features (open-PR auto-refresh,
-  // needs-review badge) work without first opening the Settings modal.
+  //
+  // Settings are loaded eagerly (not just when the Settings modal opens) so
+  // the review queue's max-concurrency cap reflects the configured value from
+  // the very first batch review — otherwise it silently falls back to the
+  // bootstrap default until the user happens to open Settings. It also drives
+  // interval-driven features (open-PR auto-refresh, needs-review badge)
+  // without first opening the Settings modal.
   onMount(() => {
     loadRepos();
-    void loadSettings().catch(() => {});
     void initLiveReview();
+    void loadSettings().catch(() => { /* queue keeps its default cap */ });
     initReviewStatus();
   });
 

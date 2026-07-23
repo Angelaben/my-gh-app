@@ -36,6 +36,9 @@ DEFAULT_REVIEW_TIMEOUT = 300
 # (~37K tokens ≈ well within Claude's 200K window) and splitting only kicks
 # in for genuinely huge PRs. Lower it for small-context models.
 DEFAULT_DIFF_MAX_CHARS = 150_000
+# Max reviews to run in parallel. Primarily caps how many PR reviews the UI
+# runs at once (the review queue); it also bounds the parallel sub-calls on the
+# rare path where a diff exceeds DEFAULT_DIFF_MAX_CHARS and has to be split.
 DEFAULT_MAX_CONCURRENCY = 3
 
 # Seconds between two Live Review poll cycles (gh pr list per watched repo).

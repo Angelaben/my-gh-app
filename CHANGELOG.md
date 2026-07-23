@@ -33,7 +33,24 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   / `launch.sh` workflow is unchanged and still fully supported for
   development.
 
+### Fixed
+- **Batch reviews now honour the configured "Max concurrency".** The review
+  queue only ever ran two PRs in parallel regardless of the setting, because
+  the frontend never loaded review settings at startup — it fetched them only
+  when the Settings modal was opened, so the queue fell back to a hard-coded
+  cap of 2 until then. Settings are now loaded on app start, and the queue's
+  concurrency is driven directly by `review_max_concurrency` (and refreshed
+  whenever settings are saved), so setting it to 5 actually runs 5 reviews at
+  once.
+
 ### Changed
+- **"Max concurrency" now governs concurrent PR reviews, not just chunks.**
+  Whole diffs are reviewed in a single call, so splitting a diff into parallel
+  chunk sub-reviews is now the rare exception rather than the norm. The setting
+  (env `REVIEW_MAX_CONCURRENCY`) is repurposed to primarily cap how many PR
+  reviews the queue runs at once when batch-reviewing; it still bounds the
+  parallel sub-reviews on the occasional split path. The Settings hint was
+  relabelled from "parallel chunk reviews" to "concurrent PR reviews".
 - **Claude read-only runs no longer force `--bare`.** `--bare` skips
   auto-discovery of Skills (and hooks / plugins / MCP / CLAUDE.md), which
   defeated the bundled `claude_skills/`. Review / analyze / generate runs now
