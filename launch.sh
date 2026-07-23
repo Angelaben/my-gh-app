@@ -8,6 +8,7 @@
 #   ./launch.sh --port 9000              # custom backend port
 #   ./launch.sh --provider claude-code   # override AI provider
 #   ./launch.sh -p opencode -P 9000      # provider + port
+#   ./launch.sh --mode review-auto       # auto-start the PR watcher at boot
 #   ./launch.sh my-session               # custom tmux session name
 #   ./launch.sh --no-build               # skip npm install/build (fast restart)
 #   API_PORT=9000 ./launch.sh            # port via env var
@@ -16,6 +17,7 @@ set -euo pipefail
 
 PROVIDER="${AI_PROVIDER:-opencode}"
 PORT="${API_PORT:-8000}"
+MODE=normal
 SESSION=""
 BUILD=1
 
@@ -29,10 +31,14 @@ while [[ $# -gt 0 ]]; do
       PORT="$2"; shift 2 ;;
     --port=*)
       PORT="${1#*=}"; shift ;;
+    -m|--mode)
+      MODE="$2"; shift 2 ;;
+    --mode=*)
+      MODE="${1#*=}"; shift ;;
     --no-build)
       BUILD=0; shift ;;
     -h|--help)
-      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
       if [[ -z "$SESSION" ]]; then
@@ -50,6 +56,14 @@ case "$PROVIDER" in
   opencode|claude-code) ;;
   *)
     echo "Unknown AI provider: '$PROVIDER' (supported: opencode, claude-code)" >&2
+    exit 2 ;;
+esac
+
+case "$MODE" in
+  normal)      AUTOSTART=0 ;;
+  review-auto) AUTOSTART=1 ;;
+  *)
+    echo "Unknown mode: '$MODE' (supported: normal, review-auto)" >&2
     exit 2 ;;
 esac
 
@@ -74,6 +88,7 @@ fi
 # ── tmux session ────────────────────────────────────────────────────────────
 echo "→ AI provider : $PROVIDER"
 echo "→ Port        : $PORT"
+echo "→ Mode        : $MODE"
 echo "→ Session     : $SESSION"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -81,7 +96,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exec tmux attach -t "$SESSION"
 fi
 
-BACKEND_CMD="AI_PROVIDER=${PROVIDER} LOG_AI_CHUNKS=${LOG_AI_CHUNKS:-1} uv run uvicorn app.main:app --reload --port ${PORT}"
+BACKEND_CMD="AI_PROVIDER=${PROVIDER} LIVE_REVIEW_AUTOSTART=${AUTOSTART} LOG_AI_CHUNKS=${LOG_AI_CHUNKS:-1} uv run uvicorn app.main:app --reload --port ${PORT}"
 FRONTEND_CMD="API_PORT=${PORT} npm run dev"
 
 tmux new-session -d -s "$SESSION" -c "$ROOT" -n app

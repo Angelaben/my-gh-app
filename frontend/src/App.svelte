@@ -13,6 +13,7 @@
   import LiveReviewPage from './components/LiveReviewPage.svelte';
   import { initLiveReview } from './stores/liveReview';
   import { loadSettings } from './stores/settings';
+  import { initReviewStatus } from './stores/reviewStatus';
   import ProviderModal from './components/ProviderModal.svelte';
   import SettingsModal from './components/SettingsModal.svelte';
   import ReviewQueue from './components/ReviewQueue.svelte';
@@ -75,11 +76,14 @@
   // Settings are loaded eagerly (not just when the Settings modal opens) so
   // the review queue's max-concurrency cap reflects the configured value from
   // the very first batch review — otherwise it silently falls back to the
-  // bootstrap default until the user happens to open Settings.
+  // bootstrap default until the user happens to open Settings. It also drives
+  // interval-driven features (open-PR auto-refresh, needs-review badge)
+  // without first opening the Settings modal.
   onMount(() => {
     loadRepos();
     void initLiveReview();
     void loadSettings().catch(() => { /* queue keeps its default cap */ });
+    initReviewStatus();
   });
 
   $effect(() => {

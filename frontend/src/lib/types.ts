@@ -84,6 +84,8 @@ export interface ReviewSettings {
   review_synthesis: boolean;
   review_ignore_globs: string[];
   live_review_poll_interval: number;
+  live_review_autostart: boolean;
+  pr_list_refresh_interval: number;
 }
 
 export interface LiveReviewStatus {

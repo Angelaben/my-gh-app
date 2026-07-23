@@ -20,7 +20,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from app.domain.models import Finding, Review
+from app.domain.models import PR, Finding, Review
 from app.ports.ai_provider import (
     AIProvider,
     ReviewChunkEvent,
@@ -44,6 +44,20 @@ from app.services._diff_splitter import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_ts(value: str | None) -> datetime | None:
+    """Parse GitHub / isoformat timestamps; None when absent or malformed."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
 
 # Ceiling on the synthesis-pass input (findings JSON + summaries + manifest).
 # Above this the mechanical merge is kept — re-splitting the synthesis would
@@ -259,6 +273,26 @@ class ReviewService:
             return False
         current = self._fetch_head_sha(repo_full_name, pr_number)
         return current is not None and current != review.head_sha
+
+    def needs_review_estimate(self, pr: PR, cached_review: Review | None) -> bool:
+        """Cheap "does this PR need a (re)review?" estimate for the sidebar badge.
+
+        Timestamp-only — deliberately **no** per-PR head-SHA ``gh`` lookup, so a
+        whole-repo summary stays to one ``gh pr list`` call. It mirrors the Live
+        Review watcher's cheap pre-filter (:meth:`LiveReviewService._trigger_reason`)
+        and may slightly over-count when GitHub bumps ``updated_at`` on comment
+        activity; that's acceptable for a badge. Callers must pre-filter drafts.
+        """
+        if cached_review is None:
+            return True  # never reviewed
+        if not cached_review.head_sha:
+            # Without a reviewed SHA we can't tell code changes from comments.
+            return False
+        updated = _parse_ts(pr.updated_at)
+        reviewed = _parse_ts(cached_review.created_at)
+        # Untouched since the review → up to date. Anything newer → assume it
+        # may carry new commits (the watcher confirms with an exact SHA check).
+        return not (updated is not None and reviewed is not None and updated <= reviewed)
 
     def _fetch_head_sha(self, repo_full_name: str, pr_number: int) -> str | None:
         """Best-effort head SHA lookup — never raises."""

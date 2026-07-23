@@ -8,6 +8,7 @@
 #   ./docker-launch.sh --port 9000               # custom host port
 #   ./docker-launch.sh --provider claude-code    # override AI provider
 #   ./docker-launch.sh -p opencode -P 9000       # provider + port
+#   ./docker-launch.sh --mode review-auto        # auto-start the PR watcher at boot
 #   ./docker-launch.sh --no-build                # reuse the existing image (skip rebuild)
 #   ./docker-launch.sh -d                        # run detached (background)
 #   ./docker-launch.sh --down                    # stop and remove the container
@@ -16,6 +17,7 @@ set -euo pipefail
 
 PROVIDER="${AI_PROVIDER:-opencode}"
 PORT="${API_PORT:-8000}"
+MODE=normal
 BUILD=1
 DETACH=0
 ACTION=up
@@ -30,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       PORT="$2"; shift 2 ;;
     --port=*)
       PORT="${1#*=}"; shift ;;
+    -m|--mode)
+      MODE="$2"; shift 2 ;;
+    --mode=*)
+      MODE="${1#*=}"; shift ;;
     --no-build)
       BUILD=0; shift ;;
     -d|--detach)
@@ -37,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     --down)
       ACTION=down; shift ;;
     -h|--help)
-      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
       echo "Unexpected argument: $1" >&2; exit 2 ;;
@@ -59,6 +65,14 @@ case "$PROVIDER" in
     exit 2 ;;
 esac
 
+case "$MODE" in
+  normal)      AUTOSTART=0 ;;
+  review-auto) AUTOSTART=1 ;;
+  *)
+    echo "Unknown mode: '$MODE' (supported: normal, review-auto)" >&2
+    exit 2 ;;
+esac
+
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [[ "$PORT" -lt 1 ]] || [[ "$PORT" -gt 65535 ]]; then
   echo "Invalid port: '$PORT' (must be 1–65535)" >&2
   exit 2
@@ -70,9 +84,11 @@ fi
 
 export AI_PROVIDER="$PROVIDER"
 export API_PORT="$PORT"
+export LIVE_REVIEW_AUTOSTART="$AUTOSTART"
 
 echo "→ AI provider : $PROVIDER"
 echo "→ Port        : $PORT"
+echo "→ Mode        : $MODE"
 
 RUN_ARGS=(up)
 [[ $BUILD -eq 1 ]] && RUN_ARGS+=(--build)
