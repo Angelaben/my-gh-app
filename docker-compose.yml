@@ -1,0 +1,49 @@
+# Default way to run gh-review-tool. See README.md#docker-default for details.
+#
+# Prerequisite: authenticate at least one CLI natively on the host FIRST
+# (gh auth login, and opencode auth login and/or claude), since the
+# container mounts those credentials read-only rather than logging in
+# itself. Docker only bind-mounts files/dirs that already exist, so an
+# unauthenticated CLI's config path will otherwise be silently created
+# empty on the host.
+services:
+  gh-review-tool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gh-review-tool:latest
+    container_name: gh-review-tool
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      AI_PROVIDER: "${AI_PROVIDER:-opencode}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      LOG_AI_CHUNKS: "${LOG_AI_CHUNKS:-1}"
+      REVIEW_DIFF_MAX_CHARS: "${REVIEW_DIFF_MAX_CHARS:-}"
+      REVIEW_MAX_CONCURRENCY: "${REVIEW_MAX_CONCURRENCY:-}"
+      REVIEW_SYNTHESIS: "${REVIEW_SYNTHESIS:-}"
+      REVIEW_IGNORE_GLOBS: "${REVIEW_IGNORE_GLOBS:-}"
+      PR_LIST_LIMIT: "${PR_LIST_LIMIT:-}"
+    volumes:
+      # App data: JSON cache, settings/prompt overrides, metrics — persists
+      # across container restarts/rebuilds.
+      - gh-review-cache:/app/.cache
+      # Bare clones + PR worktrees used by the "implement fix" flow.
+      - gh-review-worktrees:/root/.gh-review-tool
+      # gh CLI auth (run `gh auth login` on the host once).
+      - ${HOME}/.config/gh:/root/.config/gh:ro
+      # git identity for commits made by the fix flow.
+      - ${HOME}/.gitconfig:/root/.gitconfig:ro
+      # opencode auth/config — omit this pair if you only use Claude Code.
+      # Paths match the current opencode CLI; adjust if your version differs.
+      - ${HOME}/.config/opencode:/root/.config/opencode:ro
+      - ${HOME}/.local/share/opencode:/root/.local/share/opencode:ro
+      # Claude Code auth/config — omit this pair if you only use opencode.
+      # Read-write: Claude Code writes session/project state back to it.
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.claude.json:/root/.claude.json:ro
+    restart: unless-stopped
+
+volumes:
+  gh-review-cache:
+  gh-review-worktrees:
